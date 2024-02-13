@@ -22,3 +22,5 @@ renv::snapshot()
 #git config --global user.email "beatnevelei@gmail.com"
 #git config --global user.name "Beatriz Leitao"
 #git remote add Monet https://github.com/BeatrizNL/Monet.git
+# Depois de fazer commit das alterações que queres, voltar ao terminal
+#git push Monet
