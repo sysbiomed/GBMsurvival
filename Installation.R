@@ -19,5 +19,6 @@ if (!requireNamespace("biomaRt", quietly = TRUE))  install.packages("biomaRt")
 renv::snapshot()
 
 # Github configuration --> escrever no terminal
-#git config --global user.email "you@example.com"
-#git config --global user.name "Your Name"
+#git config --global user.email "beatnevelei@gmail.com"
+#git config --global user.name "Beatriz Leitao"
+#git remote add Monet https://github.com/BeatrizNL/Monet

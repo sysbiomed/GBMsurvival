@@ -20,8 +20,6 @@ library(survivalROC)
 library(risksetROC)
 library(lattice)
 
-beatnevelei@gmail.com
-
 
 #-----------------------------------------------FUNÇÕES-------------------------
 
