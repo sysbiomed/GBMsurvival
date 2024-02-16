@@ -19,7 +19,7 @@ library(caTools)
 library(survivalROC)
 library(risksetROC)
 library(lattice)
-
+library(survMisc)
 
 #-----------------------------------------------FUNÇÕES-------------------------
 
@@ -234,7 +234,7 @@ extractCoxRegressionCoefficients <- function(cox_fit) {
   rownames(coefficients) <- NULL
   
   # Print min lambda
-  cat("Lambda min:", "\n", cox_fit$lambda.min)
+  #cat("Lambda min:", "\n", cox_fit$lambda.min)
 
   return(coefficients)
 }
@@ -429,15 +429,15 @@ genes_expression <- cleanGeneExpressionData(genes_expression)
 #---------------------------- Preparar os dados para os testes
 
 # selecionar apenas os dados da doença de interesse
-#data <- selectDataPerDisease("TCGA-GBM", genes_expression, survival_data)
-data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   #<------------ indicar a doença
+data <- selectDataPerDisease("TCGA-GBM", genes_expression, survival_data)
+#data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   #<------------ indicar a doença
 genes_expression <- data$genes_expression
 survival_data <- data$survival_data
 
 # remove genes where the sum of the gene expression is 0 (necessary to repeat this step, since there is a selection of patients) 
 genes_expression <- cleanGeneExpressionData(genes_expression)
 
-# EdgeR normalization
+# EdgeR+voom normalization
 genes_expression <- normalizationEdgeR(genes_expression)
 
 # Clean the gene expression dataframe
@@ -450,33 +450,38 @@ survival_data <- orderDataByPatient(survival_data)
 # create a dataframe with categorized gene expression (high and low)
 #genes_expression <- categorizeGeneExpressionData(genes_expression)                                        #<------------ indicar se queremos os dados categorizados
 
-################################################################################
+#---------------------------- Find the best alpha
 
 # List of alpha values
-alpha_values <- seq(0.1, 1, by = 0.9)
+alpha_values <- seq(0.1, 1, by = 0.1)
 
 # List of seed values
-seed_values <- seq(1000, 1100, by = 100)
+seed_values <- seq(1000, 1100, by = 10)
 
 # Initialize an empty dataframe to store results
 results_df <- data.frame(matrix(nrow = length(alpha_values), ncol = 2))
 colnames(results_df) <- c("Alpha", "Average_C_Index")
 
-#---------------------------- Find the best alpha
+# Create an empty list to store c-index values for each alpha
+c_index_list <- vector("list", length(alpha_values))
 
 # Iterate over each alpha value
-for (i in alpha_values) {
-
+for (i in seq_along(alpha_values)) {
+  
+  cat("alpha value: ", "\n", alpha_values[i], "\n")
+  
   # Store c-index values for each seed
   c_index_values <- numeric(length(seed_values))
 
   # Iterate over each seed value
-  for (j in seed_values) {
+  for (j in seq_along(seed_values)) {
 
+    cat("seed value: ", "\n", seed_values[j], "\n")
+    
     # Split the data in train and test
-    set.seed(j)
+    set.seed(seed_values[j])
     splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
-
+    
     genes_expression_train <- splited$expression_train
     survival_train <- splited$survival_train
     genes_expression_test <- splited$expression_test
@@ -484,15 +489,26 @@ for (i in alpha_values) {
 
     # Define survival object
     survival_object <- Surv(time = survival_train$days, event = survival_train$vital_status)
-
+    
     # fit the Regularized Cox Regression
     set.seed(1012)
     fit <- cv.glmnet(prepareDataForCoxRegression(genes_expression_train),
                      survival_object, family = "cox",
-                     alpha = i)  # alpha = 1 for LASSO, 0 for ridge
-
+                     alpha = alpha_values[i])  # alpha = 1 for LASSO, 0 for ridge
+    
     # Extract coefficients from the fitted model
     CoxCoefficients <- extractCoxRegressionCoefficients(fit)
+    
+    if (length(CoxCoefficients$ensembl_gene_id) == 0) {
+      # No coefficients found, set c-index to 0.5 and skip to the next iteration
+      cat("No coefficients found", "\n")
+      c_index_values[j] <- 0.5
+      # Store c-index values for the current alpha in the list
+      c_index_list[[i]] <- c_index_values
+      next
+    }
+    
+    print(CoxCoefficients)
     
     # Fit a Cox regression model using the covariates
     fit <- coxph(survival_object ~ .,
@@ -513,7 +529,10 @@ for (i in alpha_values) {
                       plot = FALSE)
     
     # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-    c_index_values[j] <- riskAUC$Cindex
+    c_index_value <- max(0.5, riskAUC$Cindex) # Ensure c-index is not less than 0.5
+    
+    # Store c-index values for the current alpha in the list
+    c_index_list[[i]] <- c_index_values
   }
 
   # Calculate average c-index for the current alpha
@@ -524,16 +543,11 @@ for (i in alpha_values) {
   results_df[i, "Average_C_Index"] <- avg_c_index
 }
 
+# Add c-index list to results_df
+results_df$c_index_values <- c_index_list
+
 # Print the results dataframe
 print(results_df)
-
-########################################################################################
-
-
-
-###############################################################3333
-
-
 
 #---------------------------- Test the best alpha
 
@@ -573,6 +587,10 @@ fit <- coxph(survival_object ~ .,
              init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
              iter.max = 0) # force the software to keep those values
 
+# Test the proportional hazards assumption for a Cox regression model fit (coxph)
+Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
+Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
+
 #---------------------------- Test the coefficients (predictor) found
 
 # Construct a risk score based on the linear predictor on the test data
@@ -601,27 +619,26 @@ riskAUC = risksetAUC(Stime=survival_test$days,
                      plot = TRUE)
 
 # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-c_index_values[j] <- riskAUC$Cindex
+c_index_test <- riskAUC$Cindex
+
+#---------------------------- Find the best cutoff value on the train data
 
 # Construct a risk score based on the linear predictor on the train data
 survival_probabilities_train <- predict(fit, newdata = genes_expression_train[ ,CoxCoefficients$ensembl_gene_id], type = "lp")
 
-# Scatter plot of survival time vs. risk score
-plot(survival_train$time, survival_probabilities_train, xlab = "Survival Time", ylab = "Risk Score", main = "Survival Time vs. Risk Score")
-
 # Find the best threshold
-#best_threshold <- cutp(fit)
+find_best_cutoff <- cutp(survfit(Surv(survival_train$days, survival_train$vital_status) ~ survival_probabilities_train))
+best_threshold <- find_best_cutoff$survival_probabilities_train$survival_probabilities_train[which.max(find_best_cutoff$survival_probabilities_train$U)]
 
-# Find the best threshold
-#best_threshold <- findBestThreshold(survival_train, survival_probabilities_train)
+#---------------------------- Apply the best cutoff value on the test data
 
 # Categorize individuals of the test data based on the threshold
-# risk_groups <- ifelse(survival_probabilities_test > best_threshold, "High", "Low")
+risk_groups <- ifelse(survival_probabilities_test > best_threshold, "High", "Low")
 
 # Kaplan-Meier com a separação por High/ Low
-# fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
-# survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
-# ggsurvplot(fit_surv, data = survival_test)
+fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
+survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
+ggsurvplot(fit_surv, data = survival_test)
 
 #---------------------------- Extract patient ID 
 
