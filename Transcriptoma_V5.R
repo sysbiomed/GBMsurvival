@@ -458,6 +458,7 @@ alpha_values <- seq(0.1, 1, by = 0.1)
 # List of seed values
 seed_values <- seq(1000, 1100, by = 10)
 
+
 # Initialize an empty dataframe to store results
 results_df <- data.frame(matrix(nrow = length(alpha_values), ncol = 2))
 colnames(results_df) <- c("Alpha", "Average_C_Index")
@@ -493,15 +494,17 @@ for (i in seq_along(alpha_values)) {
     # fit the Regularized Cox Regression
     set.seed(1012)
     fit <- cv.glmnet(prepareDataForCoxRegression(genes_expression_train),
-                     survival_object, family = "cox",
+                     survival_object, 
+                     family = "cox",
+                     type.measure = "C",
                      alpha = alpha_values[i])  # alpha = 1 for LASSO, 0 for ridge
     
     # Extract coefficients from the fitted model
     CoxCoefficients <- extractCoxRegressionCoefficients(fit)
     
     if (length(CoxCoefficients$ensembl_gene_id) == 0) {
-      # No coefficients found, set c-index to 0.5 and skip to the next iteration
-      cat("No coefficients found", "\n")
+      # If no coefficients found, set c-index to 0.5 and skip to the next iteration,
+      cat("No coefficients found or only one coefficient found", "\n")
       c_index_values[j] <- 0.5
       # Store c-index values for the current alpha in the list
       c_index_list[[i]] <- c_index_values
@@ -512,14 +515,14 @@ for (i in seq_along(alpha_values)) {
     
     # Fit a Cox regression model using the covariates
     fit <- coxph(survival_object ~ .,
-                 genes_expression_train[, CoxCoefficients$ensembl_gene_id], # specify coefficients
+                 data = subset(genes_expression_train, select = CoxCoefficients$ensembl_gene_id), # specify coefficients
                  init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
                  iter.max = 0) # force the software to keep those values
     
     #---------------------------- Test the coefficients (predictor) found
     # Construct a risk score based on the linear predictor on the test data
-    survival_probabilities_test <- predict(fit, newdata = genes_expression_test[ ,CoxCoefficients$ensembl_gene_id], type = "lp")
-    
+    survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
+   
     # Plot AUC based on incident/dynamic definition
     riskAUC = risksetAUC(Stime=survival_test$days,
                       status = survival_test$vital_status,
@@ -529,12 +532,13 @@ for (i in seq_along(alpha_values)) {
                       plot = FALSE)
     
     # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-    c_index_value <- max(0.5, riskAUC$Cindex) # Ensure c-index is not less than 0.5
-    
-    # Store c-index values for the current alpha in the list
-    c_index_list[[i]] <- c_index_values
+    c_index_values[j] <- max(0.5, riskAUC$Cindex) # Ensure c-index is not less than 0.5
+  
   }
-
+  
+  # Store c-index values for the current alpha in the list
+  c_index_list[[i]] <- c_index_values
+  
   # Calculate average c-index for the current alpha
   avg_c_index <- mean(c_index_values)
 
@@ -569,7 +573,9 @@ survival_object <- Surv(time = survival_train$days, event = survival_train$vital
 # fit the Regularized Cox Regression
 set.seed(1012)
 fit <- cv.glmnet(prepareDataForCoxRegression(genes_expression_train),
-                 survival_object, family = "cox",
+                 survival_object, 
+                 family = "cox",
+                 type.measure = "C",
                  alpha = best_alpha)  # alpha = 1 for LASSO, 0 for ridge
 
 # plot the fit
@@ -583,7 +589,7 @@ gene_info_result <- getGenesInfo(CoxCoefficients)
 
 # Fit a Cox regression model using the covariates
 fit <- coxph(survival_object ~ ., 
-             genes_expression_train[, CoxCoefficients$ensembl_gene_id], # specify coefficients 
+             data = subset(genes_expression_train, select = CoxCoefficients$ensembl_gene_id), # specify coefficients 
              init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
              iter.max = 0) # force the software to keep those values
 
@@ -594,7 +600,7 @@ Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
 #---------------------------- Test the coefficients (predictor) found
 
 # Construct a risk score based on the linear predictor on the test data
-survival_probabilities_test <- predict(fit, newdata = genes_expression_test[ ,CoxCoefficients$ensembl_gene_id], type = "lp")
+survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
 
 #---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The cumulative sensitivity considers those who have died by time t
@@ -624,7 +630,7 @@ c_index_test <- riskAUC$Cindex
 #---------------------------- Find the best cutoff value on the train data
 
 # Construct a risk score based on the linear predictor on the train data
-survival_probabilities_train <- predict(fit, newdata = genes_expression_train[ ,CoxCoefficients$ensembl_gene_id], type = "lp")
+survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = CoxCoefficients$ensembl_gene_id), type = "lp")
 
 # Find the best threshold
 find_best_cutoff <- cutp(survfit(Surv(survival_train$days, survival_train$vital_status) ~ survival_probabilities_train))
