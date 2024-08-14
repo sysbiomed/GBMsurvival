@@ -1,4 +1,122 @@
-# Required libraries:
+---
+title: "Glioma biomarkers (astrocytoma and gliobastoma) to distinguish high-risk from low-risk patients"
+author: "Beatriz Leitão and Susana Vinga"
+date: "May, 2024"
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+params:
+  seed: !r 3390
+  train: !r 0.7
+  nfolds: !r 10
+editor_options:
+  chunk_output_type: inline
+---
+# Install packages
+
+```{r}
+
+# List of required packages
+required_packages <- c(
+  "lsa", "SnowballC", "propagate", "minpack.lm", "ff", "bit", "Rcpp", "tmvtnorm", "gmm",
+  "sandwich", "mvtnorm", "glmSparseNet", "MultiAssayExperiment", "VennDiagram", "futile.logger",
+  "SIS", "survMisc", "risksetROC", "MASS", "survivalROC", "caTools", "pROC", "edgeR", "limma",
+  "writexl", "biomaRt", "openxlsx", "caret", "lattice", "glmnet", "survminer", "ggpubr",
+  "survival", "DT", "lubridate", "forcats", "stringr", "purrr", "readr", "tidyr", "ggplot2",
+  "tidyverse", "tibble", "dplyr", "TCGAbiolinks", "SummarizedExperiment", "Biobase", "GenomicRanges",
+  "GenomeInfoDb", "IRanges", "S4Vectors", "BiocGenerics", "MatrixGenerics", "matrixStats"
+)
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+install.packages("BiocManager")
+}
+
+# Remove any old version of Matrix package
+if ("Matrix" %in% installed.packages()) {
+  remove.packages("Matrix")
+}
+
+# Install the correct version of Matrix package from source
+install.packages("https://cran.r-project.org/src/contrib/Archive/Matrix/Matrix_1.6-0.tar.gz", repos = NULL, type = "source")
+
+
+# Install missing packages
+installed_packages <- rownames(installed.packages())
+for (pkg in required_packages) {
+if (!pkg %in% installed_packages) {
+install.packages(pkg)
+}
+}
+
+# List of required packages
+required_packages <- c(
+"lsa", "SnowballC", "propagate", "minpack.lm", "ff", "bit", "Rcpp", "tmvtnorm", "gmm",
+"sandwich", "mvtnorm", "glmSparseNet", "MultiAssayExperiment", "VennDiagram", "futile.logger",
+"SIS", "survMisc", "risksetROC", "MASS", "survivalROC", "caTools", "pROC", "edgeR", "limma",
+"writexl", "biomaRt", "openxlsx", "caret", "lattice", "glmnet", "Matrix", "survminer", "ggpubr",
+"survival", "DT", "lubridate", "forcats", "stringr", "purrr", "readr", "tidyr", "ggplot2",
+"tidyverse", "tibble", "dplyr", "TCGAbiolinks", "SummarizedExperiment", "Biobase", "GenomicRanges",
+"GenomeInfoDb", "IRanges", "S4Vectors", "BiocGenerics", "MatrixGenerics", "matrixStats"
+)
+# Ensure BiocManager is installed
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+install.packages("BiocManager")
+}
+# Remove any old version of Matrix package
+if ("Matrix" %in% installed.packages()) {
+remove.packages("Matrix")
+}
+# Install the correct version of Matrix package from source
+install.packages("https://cran.r-project.org/src/contrib/Archive/Matrix/Matrix_1.6-0.tar.gz", repos = NULL, type = "source")
+
+# Install missing packages
+installed_packages <- rownames(installed.packages())
+for (pkg in required_packages) {
+if (!pkg %in% installed_packages) {
+install.packages(pkg)
+}
+}
+# Load packages
+invisible(lapply(required_packages, require, character.only = TRUE))
+# List of Bioconductor packages
+bioc_packages <- c(
+"MultiAssayExperiment", "TCGAbiolinks", "SummarizedExperiment", "Biobase",
+"GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", "BiocGenerics",
+"MatrixGenerics", "matrixStats"
+)
+# Install Bioconductor packages if not installed
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+install.packages("BiocManager")
+}
+for (pkg in bioc_packages) {
+if (!pkg %in% installed_packages) {
+BiocManager::install(pkg)
+}
+}
+# Load Bioconductor packages
+invisible(lapply(bioc_packages, require, character.only = TRUE))
+# List of CRAN packages
+cran_packages <- setdiff(required_packages, bioc_packages)
+# Install missing CRAN packages
+installed_packages <- rownames(installed.packages())
+for (pkg in cran_packages) {
+if (!pkg %in% installed_packages) {
+install.packages(pkg)
+}
+}
+# Load CRAN packages
+invisible(lapply(cran_packages, require, character.only = TRUE))
+# Finally, install quantreg package
+if (!"quantreg" %in% installed.packages()) {
+install.packages("quantreg")
+}
+
+```
+
+# Required libraries
+
+```{r message = FALSE}
 library(TCGAbiolinks)
 library(dplyr)
 library(tibble)
@@ -21,11 +139,15 @@ library(risksetROC)
 library(lattice)
 library(survMisc)
 library(SIS)
+library(VennDiagram)
+library(glmSparseNet)
+```
 
-#-----------------------------------------------FUNÇÕES-------------------------
+# Functions definition
 
-#---------------------------- Tratar os dados de sobrevivência
+## Prepare survival data
 
+```{r}
 # Extract survival data of interest
 createSurvivalDataFrame <- function(column_names, source_data) {
   
@@ -72,9 +194,11 @@ cleanSurvivalData <- function(data) {
   
   return(data)
 }
+```
 
-#---------------------------- Tratar os dados de expressão génica
+## Prepare gene expression data
 
+```{r}
 # Extrair dataframe com a expressão dos genes de interesse
 createGeneExpressionDataframe <- function(genes_of_interest, expression_measure, source_data, survivalData) {
   
@@ -115,9 +239,11 @@ cleanGeneExpressionData <- function(expression_data) {
   
   return(expression_data)
 }
+```
 
-#---------------------------- Preparar os dados para os testes
+## Select the disease and normalize the data
 
+```{r}
 # selecionar apenas os dados da doença de interesse
 selectDataPerDisease <- function(disease, expression_data, survivalData) {
   
@@ -182,10 +308,11 @@ categorizeGeneExpressionData <- function(expression_data) {
   
   return(categorized_expression_data)
 }
+```
 
-#---------------------------- Split the data in train and test
+## Split the data in train and test
 
-# Split the data in train and test
+```{r}
 splitTestAndTrain <- function(expression, survival, percentage) { 
   
   merged_data <- merge(survival, expression, by = "patient")
@@ -210,10 +337,11 @@ splitTestAndTrain <- function(expression, survival, percentage) {
   
   return(result)
 }
+```
 
+## Regularized Cox Regression functions
 
-#---------------------------- Regularized Cox Regression 
-
+```{r}
 #preparar os dados para a Regularized Cox Regression
 prepareDataForCoxRegression <- function(data) { 
   
@@ -240,9 +368,11 @@ extractCoxRegressionCoefficients <- function(cox_fit) {
   return(coefficients)
 }
 
+```
 
-#---------------------------- Get Information about the genes whose coefficient is not zero
+## Get Information about the genes whose coefficient is not zero
 
+```{r}
 # Function to get gene information
 getGenesInfo <- function(coefficients) {
   
@@ -251,7 +381,7 @@ getGenesInfo <- function(coefficients) {
   
   # Connect to the Ensembl database
   #ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
-  ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl") #mirror = "www"
+  ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl") #mirror = "www")
     # Get information about the genes
   gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", "description"),
                      filters = "ensembl_gene_id",
@@ -266,8 +396,12 @@ getGenesInfo <- function(coefficients) {
   
   return(gene_info)
 }
+```
 
-#---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
+## Cumulative case/dynamic control ROC
+
+```{r}
+# fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The cumulative sensitivity considers those who have died by time t
 # The dynamic specificity regards those who are still alive at time t 
 # This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period.
@@ -309,8 +443,12 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
           plot.title = element_text(hjust = 0.5),
           strip.background = element_blank())
 }
+```
 
-#---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
+## Incident case/dynamic control ROC
+
+```{r}
+# fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The incident sensitivity considers those who die at time t
 # The dynamic specificity regards those who are still alive at time t 
 # This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t.
@@ -355,124 +493,39 @@ IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities)
           plot.title = element_text(hjust = 0.5),
           strip.background = element_blank())
 }
+```
 
-#---------------------------- Extract patient ID 
 
-# Function to extract a column from a data frame and write it to an Excel file
-extractSampleIDColumnToExcel <- function(data, column_name, output_file) {
-  column <- as.data.frame(data[[column_name]])
-  
-  # Write to Excel
-  write_xlsx(column, output_file)
+
+## TCox functions
+
+```{r}
+twiner_glmnet <- function (x,y,alpha, w) {
+                      cv.glmnet(as.matrix(x),as.matrix(y), 
+                               family = 'cox',foldid = my_foldid, penalty.factor = w, 
+                               alpha = alpha,
+                               nlambda = 100,
+                               #lambda.min.ratio = 10^(-2),
+                               nfolds= 10)
 }
 
-#---------------------------- Find the best alpha for Regularized Cox Regression model glmnet
-
-find_best_alpha_for_glmnet <- function(alpha_vector, genes_expression, survival_data) {
-  
-  # List of seed values
-  seed_values <- seq(1000, 1100, by = 10)
-  
-  # Initialize an empty dataframe to store results
-  results_df <- data.frame(matrix(nrow = length(alpha_vector), ncol = 2))
-  colnames(results_df) <- c("Alpha", "Average_C_Index")
-  
-  # Create an empty list to store c-index values for each alpha
-  c_index_list <- vector("list", length(alpha_vector))
-  
-  # Iterate over each alpha value
-  for (i in seq_along(alpha_vector)) {
-    
-    cat("alpha value: ", "\n", alpha_vector[i], "\n")
-    
-    # Store c-index values for each seed
-    c_index_values <- numeric(length(seed_values))
-    
-    # Iterate over each seed value
-    for (j in seq_along(seed_values)) {
-      
-      cat("seed value: ", "\n", seed_values[j], "\n")
-      
-      # Split the data in train and test
-      set.seed(seed_values[j])
-      splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
-      
-      genes_expression_train <- splited$expression_train
-      survival_train <- splited$survival_train
-      genes_expression_test <- splited$expression_test
-      survival_test <- splited$survival_test
-      
-      # Define survival object
-      survival_object <- Surv(time = survival_train$days, event = survival_train$vital_status)
-      
-      # fit the Regularized Cox Regression GLMNET
-      set.seed(1012)
-      fit <- cv.glmnet(prepareDataForCoxRegression(genes_expression_train),
-                       survival_object,
-                       family = "cox",
-                       type.measure = "C",
-                       alpha = alpha_vector[1])  # alpha = 1 for LASSO, 0 for ridge
-      cat("aqui")
-      # Extract coefficients from the fitted model
-      CoxCoefficients <- extractCoxRegressionCoefficients(fit)
-      
-      if (length(CoxCoefficients$ensembl_gene_id) == 0) {
-        # If no coefficients found, set c-index to 0.5 and skip to the next iteration,
-        cat("No coefficients found or only one coefficient found", "\n")
-        c_index_values[j] <- 0.5
-        # Store c-index values for the current alpha in the list
-        c_index_list[[i]] <- c_index_values
-        next
-      }
-      
-      print(CoxCoefficients)
-      
-      # Fit a Cox regression model using the covariates
-      fit <- coxph(survival_object ~ .,
-                   data = subset(genes_expression_train, select = CoxCoefficients$ensembl_gene_id), # specify coefficients
-                   init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
-                   iter.max = 0) # force the software to keep those values
-      
-      #---------------------------- Test the coefficients (predictor) found
-      # Construct a risk score based on the linear predictor on the test data
-      survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
-      
-      # Plot AUC based on incident/dynamic definition
-      riskAUC = risksetAUC(Stime=survival_test$days,
-                           status = survival_test$vital_status,
-                           marker = survival_probabilities_test,
-                           method = "Cox",
-                           tmax = ceiling(max(survival_data$days)),
-                           plot = FALSE)
-      
-      # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-      c_index_values[j] <- max(0.5, riskAUC$Cindex) # Ensure c-index is not less than 0.5
-      
-    }
-    
-    # Store c-index values for the current alpha in the list
-    c_index_list[[i]] <- c_index_values
-    
-    # Calculate average c-index for the current alpha
-    avg_c_index <- mean(c_index_values)
-    
-    # Store results in dataframe
-    results_df[i, "Alpha"] <- alpha_vector[i]
-    results_df[i, "Average_C_Index"] <- avg_c_index
-  }
-  
-  # Add c-index list to results_df
-  results_df$c_index_values <- c_index_list
-  
-  # Print the results dataframe
-  print(results_df)
-  
-  return(results_df)
+twiner_coefs <- function (cv.fit){
+  coef(cv.fit, s = 'lambda.min')[,1] %>% { .[. != 0]}
 }
 
-#------------------------------------APLICAR-AS-FUNÇÕES-------------------------
 
-#---------------------------- recolher todos dados
+twiner_genes <- function (cv.fit) {
+  b <- which(cv.fit$glmnet.fit$beta[,which(cv.fit$cvm == min(cv.fit$cvm))] != 0)
+  return (names(b))
+}
+
+```
+
+
+
+# Download data
+
+```{r results = 'hide', message=FALSE, warning=FALSE}
 
 query_RNA <- GDCquery(
   project = c("TCGA-GBM", "TCGA-LGG"),
@@ -481,11 +534,17 @@ query_RNA <- GDCquery(
   workflow.type = "STAR - Counts",
   experimental.strategy = ("RNA-Seq")
 )
-GDCdownload(query = query_RNA)
+# Check if files exist before downloading
+if (!dir.exists("GDCdata")) {
+  GDCdownload(query = query_RNA)
+}
+
 TCGA_RNA <- GDCprepare(query = query_RNA)
+```
 
-#---------------------------- Tratar os dados de sobrevivência
+# Prepare survival data
 
+```{r}
 # Extract survival data of interest
 columns_to_extract <- c("patient", "project_id", "vital_status", "days_to_death", "days_to_last_follow_up")
 survival_data <- createSurvivalDataFrame(columns_to_extract, TCGA_RNA)
@@ -493,63 +552,114 @@ survival_data <- createSurvivalDataFrame(columns_to_extract, TCGA_RNA)
 
 # Clean and prepare survival data
 survival_data <- cleanSurvivalData(survival_data)
+```
 
-#---------------------------- Plot da curva de sobrevivência
+# Assign a new classification to the data
 
-# Kaplan-Meier com a separação por doença
-# fit_disease_RNA <- survfit(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$project_id)
-# survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$project_id)
-# ggsurvplot(fit_disease_RNA, data = survival_data)
+```{r results = 'hide', message=FALSE, warning=FALSE}
+# new classification
+new_classification <- read_csv("SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv") #download the classification datafram
+names(new_classification)[names(new_classification) == "Patient_ID"] <- "patient" # remane the Patient_ID column
+new_classification <- subset(new_classification, select = -c(TCGA.histological.type, classification.2016)) # delete unnecessary columns
 
-#---------------------------- Tratar os dados de expressão génica
+# Merge the dataframes to add the disease information keeping only common patients
+survival_data <- merge(survival_data, new_classification, by = "patient")
+survival_data <- subset(survival_data, select = -project_id)
+names(survival_data)[names(survival_data) == "classification.2021"] <- "project_id"
 
+```
+
+# Kaplan-Meier for each disease
+```{r}
+## Kaplan-Meier 
+fit_surv_teste <- survfit(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$project_id)
+survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$project_id)
+ggsurvplot(fit_surv_teste, data = survival_data)
+```
+
+# Prepare expression data
+
+```{r}
 # Extrair dataframe com a expressão dos genes de interesse
 genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded", TCGA_RNA, survival_data)
-#genes_expression <- createGeneExpressionDataframe("lncRNA", "unstranded", TCGA_RNA, survival_data)       #<------------ indicar os dados
+#genes_expression <- createGeneExpressionDataframe("lncRNA", "unstranded", TCGA_RNA, survival_data) 
+#genes_expression <- createGeneExpressionDataframe("miRNA", "unstranded", TCGA_RNA, survival_data)       #<------------ indicar os dados 
 
 # Clean the gene expression dataframe
 genes_expression <- cleanGeneExpressionData(genes_expression)
+```
 
-#---------------------------- Preparar os dados para os testes
+#  Disease selection and data normalization
 
+```{r}
 # selecionar apenas os dados da doença de interesse
-#data <- selectDataPerDisease("TCGA-GBM", genes_expression, survival_data)
-data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   #<------------ indicar a doença
-genes_expression <- data$genes_expression
-survival_data <- data$survival_data
+data_astro <- selectDataPerDisease("astrocytoma", genes_expression, survival_data)
+data_glio <- selectDataPerDisease("glioblastoma", genes_expression, survival_data)                                   
+genes_expression_astro <- data_astro$genes_expression
+survival_data_astro <- data_astro$survival_data
+
+genes_expression_glio <- data_glio$genes_expression
+survival_data_glio <- data_glio$survival_data
 
 # remove genes where the sum of the gene expression is 0 (necessary to repeat this step, since there is a selection of patients) 
-genes_expression <- cleanGeneExpressionData(genes_expression)
+genes_expression_astro <- cleanGeneExpressionData(genes_expression_astro)
+genes_expression_glio <- cleanGeneExpressionData(genes_expression_glio)
+
+# keep only columns commom to both diseases
+common_columns <- intersect(names(genes_expression_astro), names(genes_expression_glio))
+genes_expression_astro <- genes_expression_astro[, common_columns, drop = FALSE]
+genes_expression_glio <- genes_expression_glio[, common_columns, drop = FALSE]
 
 # EdgeR+voom normalization
+n_rows_astro <- nrow(genes_expression_astro)
+n_rows_glio <- nrow(genes_expression_glio)
+
+genes_expression <- rbind(genes_expression_astro, genes_expression_glio)
 genes_expression <- normalizationEdgeR(genes_expression)
 
+genes_expression_astro <- genes_expression[1:n_rows_astro, ]
+genes_expression_glio <-genes_expression[(n_rows_astro + 1):(n_rows_astro + n_rows_glio), ]
+
 # Clean the gene expression dataframe
-genes_expression <- cleanGeneExpressionData(genes_expression)
+genes_expression_astro <- cleanGeneExpressionData(genes_expression_astro)
+genes_expression_glio <- cleanGeneExpressionData(genes_expression_glio)
 
 # ordenar os dados por paciente
-genes_expression <- orderDataByPatient(genes_expression)
-survival_data <- orderDataByPatient(survival_data)
+genes_expression_astro <- orderDataByPatient(genes_expression_astro)
+survival_data_astro <- orderDataByPatient(survival_data_astro)
 
-# create a dataframe with categorized gene expression (high and low)
-#genes_expression <- categorizeGeneExpressionData(genes_expression)                                        #<------------ indicar se queremos os dados categorizados
+genes_expression_glio <- orderDataByPatient(genes_expression_glio)
+survival_data_glio <- orderDataByPatient(survival_data_glio)
 
-#---------------------------- Find the best alpha for Regularized Cox Regression model glmnet
+# merge the data
+genes_expression <- rbind(genes_expression_astro, genes_expression_glio)
+survival_data <- rbind(survival_data_astro ,survival_data_glio)
+```
+# Follow up time analysis for Astro and Glio
+```{r}
 
-# indicate the alpha values to test
-alpha_vector <- seq(0.1, 1, by = 0.1)
+combined_data <- rbind(
+  data.frame(value = survival_data$days, group = "Both"),
+  data.frame(value = survival_data_astro$days, group = "Astro"),
+  data.frame(value = survival_data_glio$days, group = "Glio")
+)
 
-# evaluate the alpha values through multiple seeds
-results_df <- find_best_alpha_for_glmnet(alpha_vector, genes_expression, survival_data)
+# Create a density plot with different colors for each group
+ggplot(combined_data, aes(x = value, fill = group)) +
+  geom_density(alpha = 0.3) +
+  labs(title = "Density Plot of Days to Last Follow Up",
+       x = "Value",
+       y = "Density") +
+  scale_fill_manual(values = c("Both" = "red", "Astro" = "blue", "Glio" = "green"))
 
-# select the best alpha  
-best_alpha <- results_df$Alpha[which.max(results_df$Average_C_Index)]
+```
+# Split the data in train and test and define survival object
 
-#---------------------------- Split the data in train and test
-
+```{r}
 # Split the data in train and test
 set.seed(1012)
-splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
+#splited <- splitTestAndTrain(genes_expression_astro, survival_data_astro, 0.7)
+splited <- splitTestAndTrain(genes_expression_glio, survival_data_glio, 0.7)
 
 genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
@@ -558,111 +668,85 @@ survival_test <- splited$survival_test
 
 # Define survival object
 survival_object <- Surv(time = survival_train$days, event = survival_train$vital_status)
+```
 
-#---------------------------- Fit the Regularized Cox Regression with the best alpha
+# TCox experience
+```{r}
+## correlation matrices
+library("propagate")
+library("lsa")
 
-# fit the Regularized Cox Regression
+# Filter glioblastoma patients who died (non-censored data)
+glio_died <- survival_data_glio[survival_data_glio$vital_status == 1, ]
+
+# Determine the median survival time
+median_survival <- median(glio_died$days)
+
+# Divide glioblastoma patients into high and low groups based on median survival
+glio_high <- glio_died[glio_died$days > median_survival, ]
+glio_low <- glio_died[glio_died$days <= median_survival, ]
+
+# Prepare gene expression data for high and low groups
+genes_expression_glio_high <- genes_expression_glio[genes_expression_glio$patient %in% glio_high$patient, ]
+genes_expression_glio_low <- genes_expression_glio[genes_expression_glio$patient %in% glio_low$patient, ]
+
+# Remove the 'patient' column for correlation calculations
+genes_expression_glio_high <- subset(genes_expression_glio_high, select = -patient)
+genes_expression_glio_low <- subset(genes_expression_glio_low, select = -patient)
+
+# Calculate correlation matrices for high and low groups
+glio_high_cor <- bigcor(genes_expression_glio_high, y = NULL, fun = "cor", size = 2000, verbose=FALSE)
+glio_high_cor <- as.data.frame(as.ffdf(glio_high_cor))
+
+glio_low_cor <- bigcor(genes_expression_glio_low, y = NULL, fun = "cor", size = 2000, verbose=FALSE)
+glio_low_cor <- as.data.frame(as.ffdf(glio_low_cor))
+
+## angular distance
+ang_weight <- vector()
+
+for (i in 1:ncol(genes_expression_glio_high)) {
+  ang_weight[i] <- acos(cosine(glio_high_cor[,i], glio_low_cor[,i])) / pi
+}
+
+## normalized weights (between 0 and 1)
+
+normalized_weights <- ang_weight / max(ang_weight)
+hist(ang_weight)
+normalized_weights <- (1 - normalized_weights)^3
+hist(normalized_weights, main="(1 - normal weight)^3")
+#normalized_weights <- (normalized_weights)^3
+#hist(normalized_weights, main="(normal weight)^3")
+
+#glmnet
+
+##Foldid
+my_foldid <- sample(1:10,size=dim(survival_object)[1],replace=TRUE)
 set.seed(1012)
-fit <- cv.glmnet(prepareDataForCoxRegression(genes_expression_train),
-                 survival_object,
-                 family = "cox",
-                 type.measure = "C",
-                 alpha = best_alpha)  # alpha = 1 for LASSO, 0 for ridge
+cv.fit_tweleele3 <- twiner_glmnet(prepareDataForCoxRegression(genes_expression_train),
+                                  survival_object,0.3, normalized_weights)
+##genes
+coefs.v_tweleele3 <- twiner_coefs(cv.fit_tweleele3)
 
-# plot the fit
-plot(fit)
+fit.selected_tweleele3 <- twiner_genes(cv.fit_tweleele3)
+length(fit.selected_tweleele3)
 
-# Extract coefficients from the fitted model
-CoxCoefficients <- extractCoxRegressionCoefficients(fit)
-
-#---------------------------- Fit the Regularized Cox Regression (I)SIS
-
-# fit the Regularized Cox Regression (I)SIS
-set.seed(1012)
-fit <- SIS(prepareDataForCoxRegression(genes_expression_train),
-           survival_object, 
-           family = "cox",
-           penalty='lasso', # Cox model currently not implemented with the 'SCAD' (the default), 'MCP', or 'lasso' are provided
-           tune='cv',
-           type.measure='deviance', #For penalty='SCAD' and penalty='MCP', only type.measure='deviance' is available
-           iter = FALSE, #Specifies whether to perform iterative SIS.
-           seed = 1000)
-           #varISIS='cons') #Specifies whether to perform any of the two ISIS variants based on randomly splitting the sample into two groups
-
-# Extract coefficients from the fitted model
-CoxCoefficients <- data.frame(Coef_value = as.data.frame(fit$coef.est)[,1], 
-                              ensembl_gene_id = colnames(prepareDataForCoxRegression(genes_expression_train)[, fit$ix]))
-
-#---------------------------- Explore the fitted model
-
-# Function to get gene information
-gene_info_result <- getGenesInfo(CoxCoefficients)
-
-# Fit a Cox regression model using the covariates
-fit <- coxph(survival_object ~ ., 
-             data = subset(genes_expression_train, select = CoxCoefficients$ensembl_gene_id), # specify coefficients 
-             init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
+## Fit a Cox regression model using the covariates
+fit_TCox <- coxph(survival_object ~ .,
+             data = subset(genes_expression_train, select = fit.selected_tweleele3), # specify coefficients
+             init = as.numeric(coefs.v_tweleele3), # specify coefficient values
              iter.max = 0) # force the software to keep those values
 
 # Test the proportional hazards assumption for a Cox regression model fit (coxph)
-Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
+Propo_hazards <- cox.zph(fit_TCox, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
 Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
 
-#---------------------------- Test the coefficients (predictor) found
+## Construct a risk score based on the linear predictor on the test data
+survival_probabilities_test <- predict(fit_TCox, newdata = subset(genes_expression_test, select = fit.selected_tweleele3), type = "lp")
 
-# Construct a risk score based on the linear predictor on the test data
-survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
+risk_groups <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
 
-#---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
-# The cumulative sensitivity considers those who have died by time t
-# The dynamic specificity regards those who are still alive at time t 
-# This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period.
-CumulativeCaseDynamicControlROC(survival_test, survival_probabilities_test)
-
-#---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
-# The incident sensitivity considers those who die at time t
-# The dynamic specificity regards those who are still alive at time t 
-# This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t.
-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test)
-
-#---------------------------- Plot AUC based on incident/dynamic definition
-
-# Plot AUC
-riskAUC = risksetAUC(Stime=survival_test$days,
-                     status = survival_test$vital_status,
-                     marker = survival_probabilities_test,
-                     method = "Cox",
-                     tmax = ceiling(max(survival_data$days)),
-                     plot = TRUE)
-
-# Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-c_index_test <- riskAUC$Cindex
-
-#---------------------------- Find the best cutoff value on the train data
-
-# Construct a risk score based on the linear predictor on the train data
-survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = CoxCoefficients$ensembl_gene_id), type = "lp")
-
-# Find the best threshold based on the score (log-rank) test 
-find_best_cutoff <- cutp(survfit(Surv(survival_train$days, survival_train$vital_status) ~ survival_probabilities_train))
-best_threshold <- find_best_cutoff$survival_probabilities_train$survival_probabilities_train[which.max(find_best_cutoff$survival_probabilities_train$U)]
-
-
-#---------------------------- Apply the best cutoff value on the test data
-
-# Categorize individuals of the test data based on the threshold
-risk_groups <- ifelse(survival_probabilities_test > best_threshold, "High", "Low")
-
-# Categorize individuals of the test data based on the median
-#risk_groups <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
-
-# Kaplan-Meier com a separação por High/ Low
-fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
+## Kaplan-Meier com a separação por High/ Low
+fit_surv_TCox <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
 survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk_groups)
-ggsurvplot(fit_surv, data = survival_test)
-
-#---------------------------- Extract patient ID 
-
-# Function to extract patient ID to an Excel
-#extractSampleIDColumnToExcel(survival_data, "patient", "output_file.xlsx")
-
+ggsurvplot(fit_surv_TCox, data = survival_test)
+```
