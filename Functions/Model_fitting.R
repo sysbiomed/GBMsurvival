@@ -191,24 +191,23 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   rsf_model <- rfsrc(Surv(days, vital_status) ~ ., data = data_randomforest)
   
   # Extract feature importance from the causal forest
-  importance <- vimp(rsf_model)$importance
+  importance_rsf <- vimp(rsf_model)$importance
   
   # Select the top features based on importance
-  top_features_indices <- order(importance, decreasing = TRUE)[1:20]
+  top_features_indices_rsf <- order(importance_rsf, decreasing = TRUE)[1:100]
   z <- as.matrix(genes_expression_train[, -which(names(genes_expression_train) %in% c("patient"))])
-  top_features <- colnames(z)[top_features_indices]
+  top_features_rsf <- colnames(z)[top_features_indices_rsf]
   
-  ## Fit a Cox regression model using the covariates
-  fit_rsf_model <- coxph(survival_object ~ .,
-                         data = subset(genes_expression_train, select = top_features))#, # specify coefficients
-  #init = as.numeric(coefficients), # specify coefficient values
-  #iter.max = 0) # force the software to keep those values
+  # Fit a Cox regression model to avoid having predictors that are highly correlated with others
+  set.seed(1012)
+  fit_rsf_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features_rsf)),
+                             survival_object,
+                             family = "cox",
+                             alpha = 0.3)
   
   # Extract coefficients from the fitted model
-  RandomForest_Coefficients <- data.frame(Coef_value = as.data.frame(coef(fit_rsf_model))[,1],                              ensembl_gene_id = rownames(as.data.frame(coef(fit_rsf_model))))
-  
-  
-  
+  RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
+ 
   
   ############# Fit the Causal forest model
   # Prepare the data for the causal forest
@@ -224,22 +223,22 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
                                                 target = "survival.probability")
   
   # Extract feature importance from the causal forest
-  importance <- variable_importance(causal_forest_model)
+  importance_causal_forest <- variable_importance(causal_forest_model)
   
   # Select the top features based on importance
-  top_features_indices <- order(importance, decreasing = TRUE)[1:100]
-  top_features <- colnames(X)[top_features_indices]
+  top_features_indices_causal_forest <- order(importance_causal_forest, decreasing = TRUE)[1:100]
+  top_features_causal_forest <- colnames(X)[top_features_indices_causal_forest]
   
   # Fit a Cox regression model to avoid having predictors that are highly correlated with others
   set.seed(1012)
-  fit_causal_forest_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features)),
+  fit_causal_forest_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features_causal_forest)),
                                        survival_object,
                                        family = "cox",
                                        alpha = 0.3)
   
   
   # Extract coefficients from the fitted model
-  CausalForest_Coefficients <- extractCoxRegressionCoefficients(fit_causal_forest_model)#data.frame(Coef_value = as.data.frame(coef(fit_causal_forest_model))[,1],                              ensembl_gene_id = rownames(as.data.frame(coef(fit_causal_forest_model))))
+  CausalForest_Coefficients <- extractCoxRegressionCoefficients(fit_causal_forest_model)
   
   
   ############# Fit the Boruta model
@@ -254,15 +253,16 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   significant_features <- getSelectedAttributes(boruta_output, 
                                                 withTentative = TRUE)
   
-  ## Fit a Cox regression model using the covariates
-  fit_boruta_model <- coxph(survival_object ~ .,
-                            data = subset(genes_expression_train, select = significant_features))#, # specify coefficients
-  #init = as.numeric(coefficients), # specify coefficient values
-  #iter.max = 0) # force the software to keep those values
+  # Fit a Cox regression model to avoid having predictors that are highly correlated with others
+  set.seed(1012)
+  fit_boruta_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = significant_features)),
+                                survival_object,
+                                family = "cox",
+                                alpha = 0.3)
   
   # Extract coefficients from the fitted model
-  Boruta_Coefficients <- data.frame(Coef_value = as.data.frame(coef(fit_boruta_model))[,1],
-                                    ensembl_gene_id = rownames(as.data.frame(coef(fit_boruta_model))))
+  Boruta_Coefficients <- extractCoxRegressionCoefficients(fit_boruta_model)
+  
   
   
   models_coefficients <- list(GLMNET_Coefficients, SIS_Coefficients, ISIS_Coefficients, RandomForest_Coefficients, CausalForest_Coefficients, Boruta_Coefficients)

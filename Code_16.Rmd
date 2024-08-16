@@ -1,87 +1,83 @@
 ---
 title: "Glioma biomarkers to distinguish high-risk from low-risk patients"
 author: "Beatriz Leitão and Susana Vinga"
-date: "May, 2024"
+date: "September, 2024"
 output:
   html_document: 
     number_sections: yes
     toc: yes
-params:
-  seed: !r 3390
-  train: !r 0.7
-  nfolds: !r 10
 editor_options:
   chunk_output_type: inline
 ---
 # Install packages
 
-```{r results = 'hide', message=FALSE, warning=FALSE}
-# List of required packages
-required_packages <- c(
-  "lsa", "SnowballC", "propagate", "minpack.lm", "ff", "bit", "Rcpp", "tmvtnorm", "gmm",
-  "sandwich", "mvtnorm", "VennDiagram", "futile.logger",
-  "SIS", "survMisc", "risksetROC", "MASS", "survivalROC", "caTools", "pROC",
-  "writexl", "openxlsx", "caret", "lattice", "glmnet", "Matrix", "survminer", "ggpubr",
-  "survival", "DT", "lubridate", "forcats", "stringr", "purrr", "readr", "tidyr", "ggplot2",
-  "tidyverse", "tibble", "dplyr", "matrixStats", "grf", "randomForestSRC", "Boruta", "timeROC",
-  "qvalue"
-)
-
-# Install missing packages
-installed_packages <- rownames(installed.packages())
-for (pkg in required_packages) {
-  if (!pkg %in% installed_packages) {
-    install.packages(pkg)
-  }
-}
-
-# Load packages
-invisible(lapply(required_packages, require, character.only = TRUE))
-
-# List of Bioconductor packages
-bioc_packages <- c(
-  "MultiAssayExperiment", "TCGAbiolinks", "SummarizedExperiment", "Biobase", 
-  "GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", "BiocGenerics", 
-  "MatrixGenerics", "matrixStats", "glmSparseNet", "MultiAssayExperiment",
-  "edgeR", "limma", "biomaRt", "TCGAbiolinks", "SummarizedExperiment", 
-  "Biobase", "GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", 
-  "BiocGenerics", "MatrixGenerics"
-)
-
-# Install Bioconductor packages if not installed
-if (!requireNamespace("BiocManager", quietly = TRUE)) {
-  install.packages("BiocManager")
-}
-for (pkg in bioc_packages) {
-  if (!pkg %in% installed_packages) {
-    BiocManager::install(pkg)
-  }
-}
-
-
-# Load Bioconductor packages
-invisible(lapply(bioc_packages, require, character.only = TRUE))
-
-# List of CRAN packages
-cran_packages <- setdiff(required_packages, bioc_packages)
-
-# Install missing CRAN packages
-installed_packages <- rownames(installed.packages())
-for (pkg in cran_packages) {
-  if (!pkg %in% installed_packages) {
-    install.packages(pkg)
-  }
-}
-
-# Load CRAN packages
-invisible(lapply(cran_packages, require, character.only = TRUE))
-
-#renv::restore()
+```{r to_delete, results = 'hide', message=FALSE, warning=FALSE}
+# # List of required packages
+# required_packages <- c(
+#   "lsa", "SnowballC", "propagate", "minpack.lm", "ff", "bit", "Rcpp", "tmvtnorm", "gmm",
+#   "sandwich", "mvtnorm", "VennDiagram", "futile.logger",
+#   "SIS", "survMisc", "risksetROC", "MASS", "survivalROC", "caTools", "pROC",
+#   "writexl", "openxlsx", "caret", "lattice", "glmnet", "Matrix", "survminer", "ggpubr",
+#   "survival", "DT", "lubridate", "forcats", "stringr", "purrr", "readr", "tidyr", "ggplot2",
+#   "tidyverse", "tibble", "dplyr", "matrixStats", "grf", "randomForestSRC", "Boruta", "timeROC",
+#   "qvalue"
+# )
+# 
+# # Install missing packages
+# installed_packages <- rownames(installed.packages())
+# for (pkg in required_packages) {
+#   if (!pkg %in% installed_packages) {
+#     install.packages(pkg)
+#   }
+# }
+# 
+# # Load packages
+# invisible(lapply(required_packages, require, character.only = TRUE))
+# 
+# # List of Bioconductor packages
+# bioc_packages <- c(
+#   "MultiAssayExperiment", "TCGAbiolinks", "SummarizedExperiment", "Biobase", 
+#   "GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", "BiocGenerics", 
+#   "MatrixGenerics", "matrixStats", "glmSparseNet", "MultiAssayExperiment",
+#   "edgeR", "limma", "biomaRt", "TCGAbiolinks", "SummarizedExperiment", 
+#   "Biobase", "GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", 
+#   "BiocGenerics", "MatrixGenerics"
+# )
+# 
+# # Install Bioconductor packages if not installed
+# if (!requireNamespace("BiocManager", quietly = TRUE)) {
+#   install.packages("BiocManager")
+# }
+# for (pkg in bioc_packages) {
+#   if (!pkg %in% installed_packages) {
+#     BiocManager::install(pkg)
+#   }
+# }
+# 
+# 
+# # Load Bioconductor packages
+# invisible(lapply(bioc_packages, require, character.only = TRUE))
+# 
+# # List of CRAN packages
+# cran_packages <- setdiff(required_packages, bioc_packages)
+# 
+# # Install missing CRAN packages
+# installed_packages <- rownames(installed.packages())
+# for (pkg in cran_packages) {
+#   if (!pkg %in% installed_packages) {
+#     install.packages(pkg)
+#   }
+# }
+# 
+# # Load CRAN packages
+# invisible(lapply(cran_packages, require, character.only = TRUE))
+# 
+# #renv::restore()
 ```
 
 # Load libraries
 
-```{r results=FLASE, message=FALSE, warning=FALSE}
+```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
 
 load_libraries <- function(...) {
   libs <- list(...)
@@ -93,7 +89,8 @@ invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "
 ```
 
 # Download functions
-```{r setup, include=FALSE}
+
+```{r Download_functions}
 
 source("Functions/Data_preparation.R")
 source("Functions/Model_evaluation.R")
@@ -104,28 +101,18 @@ source("Functions/Rank_product.R")
 
 # Store results
 
-```{r}
+```{r Store_results}
 
-# # Ensure the 'Results' directory exists
-# if (!dir.exists("Results")) {
-#   dir.create("Results")
-# }
-# 
-# # Example: Save a summary table as a CSV file
-# write.csv(summary_table, file = "Results/summary_table.csv", row.names = FALSE)
-# 
-# # Example: Save a ggplot2 plot
-# ggsave(filename = "Results/my_plot.png", plot = plot, width = 6, height = 4)
-# 
-# # Example: Save a model
-# saveRDS(model, file = "Results/my_model.rds")
-
+# Ensure the 'Results' directory exists
+if (!dir.exists("Results")) {
+  dir.create("Results")
+}
 
 ```
 
 # Download data
 
-```{r results = 'hide', message=FALSE, warning=FALSE}
+```{r Download_data, results = 'hide', message=FALSE, warning=FALSE}
 
 query_RNA <- GDCquery(
   project = c("TCGA-GBM", "TCGA-LGG"),
@@ -146,7 +133,7 @@ TCGA_RNA <- GDCprepare(query = query_RNA)
 
 # Prepare survival data
 
-```{r}
+```{r Prepare_survival_data}
 # Extract survival data of interest
 columns_to_extract <- c("patient", "project_id", "vital_status", "days_to_death", "days_to_last_follow_up")
 survival_data <- createSurvivalDataFrame(columns_to_extract, TCGA_RNA)
@@ -158,7 +145,7 @@ survival_data <- cleanSurvivalData(survival_data)
 
 # Assign a new classification to the data
 
-```{r results = 'hide', message=FALSE, warning=FALSE}
+```{r Assign_new_classification_to_the_data, results = 'hide', message=FALSE, warning=FALSE}
 # new classification -->
 new_classification <- read_csv("SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv") #download the classification datafram
 names(new_classification)[names(new_classification) == "Patient_ID"] <- "patient" # remane the Patient_ID column
@@ -173,7 +160,7 @@ names(survival_data)[names(survival_data) == "classification.2021"] <- "project_
 
 # Select and prepare expression data
 
-```{r}
+```{r Select_and_prepare_expression_data}
 # Extrair dataframe com a expressão dos genes de interesse
 genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded", TCGA_RNA, survival_data)
 #genes_expression <- createGeneExpressionDataframe("lncRNA", "unstranded", TCGA_RNA, survival_data)
@@ -185,13 +172,13 @@ genes_expression <- cleanGeneExpressionData(genes_expression)
 
 # Disease selection and data normalization
 
-```{r}
+```{r Disease_selection_and_data_normalization}
 
 #------------ OLD CLASSIFICATION-------------------------------------------------
 
 # selecionar apenas os dados da doença de interesse
 #data <- selectDataPerDisease("TCGA-GBM", genes_expression, survival_data)
-#data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   #<------------ indicar a doença, ajustar depois os seeds no fit do ISIS e do SIS
+#data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   
 
 #------------ NEW CLASSIFICATION-------------------------------------------------
 
@@ -215,15 +202,12 @@ genes_expression <- cleanGeneExpressionData(genes_expression)
 genes_expression <- orderDataByPatient(genes_expression)
 survival_data <- orderDataByPatient(survival_data)
 
-
-# create a dataframe with categorized gene expression (high and low)
-#genes_expression <- categorizeGeneExpressionData(genes_expression)                                        #<------------ indicar se queremos os dados categorizados
 ```
 
 # Find the best alpha for Regularized Cox Regression model glmnet
 
-```{r message=FALSE, warning=FALSE}
-#```{r results = 'hide', message=FALSE, warning=FALSE}
+```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
+
 # indicate the alpha values to test
 alpha_vector <- seq(0.1, 1, by = 0.9) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
@@ -239,7 +223,7 @@ cat("Best alpha: ", "\n", best_alpha, "\n")
 
 # Fit and Explore the Models
 
-```{r message=FALSE, warning=FALSE}
+```{r Fit_and_Explore_the_Models, message=FALSE, warning=FALSE}
 
 # Models' names
 models_names_list <- c("GLMNET_Coefficients", "SIS_Coefficients", "ISIS_Coefficients", "RandomForest_Coefficients", "CausalForest_Coefficients", "Boruta_Coefficients")
@@ -314,7 +298,7 @@ print(summary_table)
 
 # Indentify oultiers with the rank product test
 
-```{r message=FALSE, warning=FALSE}
+```{r Indentify_oultiers_with_the_rank_product_test, message=FALSE, warning=FALSE}
 
 # Calculate martingale residuals for each model
 martingale_residuals_matrix <- calculate_martingale_residuals(models_coefficients_list, genes_expression, survival_data)
@@ -341,9 +325,6 @@ outliers_rank_product <- which(qvalues<0.001) # Tightened the significance thres
 genes_expression_without_outliers <- genes_expression[-outliers_rank_product, ]
 survival_data_without_outliers <- survival_data[-outliers_rank_product, ]
 
-# print the indentified outliers
-cat("Outliers: ", outliers_rank_product, "\n")
-
 # Grouping data by outliers
 survival_data$group <- ifelse(rownames(survival_data) %in% outliers_rank_product, "Outlier", "Non-Outlier")
 
@@ -358,15 +339,36 @@ plot_outliers$plot
 survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group)
 survdiff_outliers_output <- capture.output(survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group))
 
+
+# Create the table with the specified information
+outliers_table <- data.frame(
+  Index = outliers_rank_product,
+  Time = survival_data$days[outliers_rank_product],
+  Status = survival_data$vital_status[outliers_rank_product],
+  p_value = pvalues[outliers_rank_product],
+  q_value = qvalues[outliers_rank_product]
+)
+
+# Order the table by q-value
+outliers_table <- outliers_table[order(outliers_table$q_value), ]
+
+# Print the table to check
+print(outliers_table)
+
+
 # Write the captured output to a file
 writeLines(survdiff_outliers_output, "Results/survdiff_outliers_output.txt")
 
 # Save plot
-ggsave(filename = "Results/plot_with_without_outliers.png", plot = plot_outliers$plot, width = 6, height = 4)
+ggsave(filename = "Results/plot_with_without_outliers.pdf", plot = plot_outliers$plot, width = 6, height = 4)
+
+# Save the table as a CSV file in the "Results" directory
+write.csv(outliers_table, file = "Results/outliers_table.csv", row.names = FALSE)
+
 ```
 # Fit and Explore the Models Without Outliers
 
-```{r message=FALSE, warning=FALSE}
+```{r Fit_and_Explore_the_Models_Without_Outliers, message=FALSE, warning=FALSE}
 
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list_without_outliers <- list()
@@ -427,20 +429,22 @@ summary_table_without_outliers <- data.frame(
   Non_Convergence_Perc = apply(num_coeff_df_without_outliers, 1, function(x) mean(x == 0) * 100)
 )
 
-#Save a summary table as a CSV file
+# Save a summary table as a CSV file
 write.csv(summary_table_without_outliers, file = "Results/summary_table_without_outliers.csv", row.names = FALSE)
 
 print(summary_table_without_outliers)
 ```
 # Analyse the best model
 
-```{r message=FALSE, warning=FALSE}
+```{r Analyse_the_best_model, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 best_model_index <- which.max(rowMeans(c_index_df_without_outliers, na.rm = TRUE))
 best_model_name <- rownames(c_index_df_without_outliers)[best_model_index]
 
+cat("Best model:", best_model_name, "\n")
+
 # Get the coefficients of the best model
-best_model_coefficients <- models_coefficients_list[[1]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed para que dê igual performance
+best_model_coefficients <- models_coefficients_list[[1]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
 # Get information on the coefficients of the best model    
 gene_info_result <- getGenesInfo(best_model_coefficients)
@@ -467,6 +471,7 @@ fit <- coxph(survival_object_train ~ .,
 # Test the proportional hazards assumption for a Cox regression model fit (coxph)
 Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
 Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
+print(Propo_hazards$table)
 
 # Construct a risk score based on the linear predictor on the test data
 survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id), type = "lp")
@@ -489,33 +494,31 @@ auc_values <- sapply(times, function(t) {
   roc_result$AUC
 })
 
-auc_df <- data.frame(
-  Time = times,
-  AUC = auc_values
-)
+auc_df <- data.frame(Time = times, AUC = auc_values)
 print(auc_df)
 
 
-#---------------------------- Risk AUC
+#---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
+# The cumulative sensitivity considers those who have died by time t
+# The dynamic specificity regards those who are still alive at time t 
+# This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period.
+Cumulative_ROC <- CumulativeCaseDynamicControlROC(survival_test, survival_probabilities_test, "Cumulative case/ Dynamic control ROC")
+Cumulative_ROC
 
+#---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
+# The incident sensitivity considers those who die at time t
+# The dynamic specificity regards those who are still alive at time t 
+# This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t.
+Incident_ROC <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC")
+Incident_ROC
+
+#Risk AUC based on Incident case/dynamic control
 riskAUC = risksetAUC(Stime=survival_test$days,
                        status = survival_test$vital_status,
                        marker = survival_probabilities_test,
                        method = "Cox",
                        tmax = ceiling(max(survival_data$days)),
                        plot = TRUE)
-
-#---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
-# The cumulative sensitivity considers those who have died by time t
-# The dynamic specificity regards those who are still alive at time t 
-# This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period.
-CumulativeCaseDynamicControlROC(survival_test, survival_probabilities_test)
-
-#---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
-# The incident sensitivity considers those who die at time t
-# The dynamic specificity regards those who are still alive at time t 
-# This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t.
-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test)
 
 
 # Construct a risk score based on the linear predictor on the train data
@@ -532,43 +535,60 @@ survdiff_output <- capture.output(survdiff(Surv(survival_test$days, survival_tes
 plot <- ggsurvplot(fit_surv, data = survival_test, title = "Kaplan-Meier Curves by Risk Status", legend.title = "Group")
 plot$plot
 
+
+# Save a predictors genes and coefficients as a CSV file
+write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
+
+# Save a predictors genes and coefficients as a CSV file
+write.csv(gene_info_result, file = "Results/predictors_genes_and_coefficients", row.names = FALSE)
+
 # Write the captured output to a file
 writeLines(survdiff_output, "Results/survdiff_output.txt")
 
-# Save plot
-ggsave(filename = "Results/plot_high_low_risk.png", plot = plot$plot, width = 6, height = 4)
+# Save plots
+ggsave(filename = "Results/plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4)
+ggsave(filename = "Results/Cumulative_ROC.pdf", plot = Cumulative_ROC, width = 6, height = 4)
+ggsave(filename = "Results/Incident_ROC.pdf", plot = Incident_ROC, width = 6, height = 4)
+
+# Save a AUC 1, 3, and 5 years as a CSV file
+write.csv(auc_df, file = "Results/AUC_1_3_5", row.names = FALSE)
+
 ```
 
-# See the balance of censored data in test and training
+# Analyse the balance of censored data in test and training
 
-```{r}
+```{r Analyse_the_balance_of_censored_data_in_test_and_training}
 
 counts_test <- table(survival_test$vital_status)
 
 # Calculate the percentage of zeros and ones
-test_percent_zeros <- (counts_test[1] / sum(counts_test)) * 100
-test_percent_ones <- (counts_test[2] / sum(counts_test)) * 100
+test_percent_zeros <- round((counts_test[1] / sum(counts_test)) * 100, 2)
+test_percent_ones <- round((counts_test[2] / sum(counts_test)) * 100, 2)
 
 counts_train <- table(survival_train$vital_status)
 
 # Calculate the percentage of zeros and ones
-train_percent_zeros <- (counts_train[1] / sum(counts_train)) * 100
-train_percent_ones <- (counts_train[2] / sum(counts_train)) * 100
+train_percent_zeros <- round((counts_train[1] / sum(counts_train)) * 100, 2)
+train_percent_ones <- round((counts_train[2] / sum(counts_train)) * 100, 2)
 
 # Create a dataframe to store the comparison
-comparison <- data.frame(
+comparison_test_train_data <- data.frame(
   Dataframe = c("survival_test", "survival_train"),
   Alive = c(test_percent_zeros, train_percent_zeros),
   Dead = c(test_percent_ones, train_percent_ones)
 )
 
-comparison
+comparison_test_train_data
+
+# Save the table as a CSV file in the "Results" directory
+write.csv(comparison_test_train_data, file = "Results/comparison_test_train_data.csv", row.names = FALSE)
 
 ```
 
 # Test the best model on the train data
 
-```{r}
+```{r Test_the_best_model_on_the_train_data}
+
 # Construct a risk score based on the linear predictor on the train data
 a_survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp")
 
@@ -578,6 +598,16 @@ risk_groups <- ifelse(a_survival_probabilities_train > median(a_survival_probabi
 # Kaplan-Meier com a separação por High/ Low
 fit_surv <- survfit(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups)
 survdiff(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups)
-ggsurvplot(fit_surv, data = survival_train)
+survdiff_output_train_data <- capture.output(survdiff(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups))
+
+plot_train_data <- ggsurvplot(fit_surv, data = survival_train, title = "Kaplan-Meier Curves by Risk Status (train data)", legend.title = "Group")
+plot_train_data$plot
+
+
+# Write the captured output to a file
+writeLines(survdiff_output_train_data, "Results/survdiff_output_train_data.txt")
+
+# Save plot
+ggsave(filename = "Results/plot_high_low_risk_train_data.pdf", plot = plot_train_data$plot, width = 6, height = 4)
 
 ```

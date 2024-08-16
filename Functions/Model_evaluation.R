@@ -1,6 +1,33 @@
-## Get Information about the genes whose coefficient is not zero
+# Function to calculate the C-index
 
-# Function to get gene information
+calculate_c_index <- function(survival_object_train, genes_expression_train, models_coefficients, genes_expression_test, survival_test, survival_data) {
+  
+  # Fit a Cox regression model using the covariates
+  fit <- coxph(survival_object_train ~ ., 
+               data = subset(genes_expression_train, select = models_coefficients$ensembl_gene_id), # specify coefficients 
+               init = as.numeric(models_coefficients$Coef_value), # specify coefficient values
+               iter.max = 0) # force the software to keep those values
+  
+  # Construct a risk score based on the linear predictor on the test data
+  survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
+  
+  riskAUC = risksetAUC(Stime=survival_test$days,
+                       status = survival_test$vital_status,
+                       marker = survival_probabilities_test,
+                       method = "Cox",
+                       tmax = ceiling(max(survival_data$days)),
+                       plot = FALSE)
+  
+  # Store c-index value for the current model
+  c_index <-riskAUC$Cindex
+  
+  # Return the list of C-index values
+  return(c_index)
+}
+
+
+# Get Information about the genes whose coefficient is not zero
+
 getGenesInfo <- function(coefficients) {
   
   # Remove the version of the gene from its name(everything after the dot including the dot)
@@ -22,14 +49,14 @@ getGenesInfo <- function(coefficients) {
   return(gene_info)
 }
 
-## Cumulative case/dynamic control ROC
+# Cumulative case/dynamic control ROC
 
 # fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The cumulative sensitivity considers those who have died by time t
 # The dynamic specificity regards those who are still alive at time t 
 # This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period.
 
-CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilities) {
+CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilities, title) {
   
   ## Define a helper function to evaluate at various t
   survivalROC_helper <- function(t) {
@@ -61,20 +88,21 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
                mapping = aes(label = sprintf("%.3f", auc)), x = 0.5, y = 0.5) +
     facet_wrap( ~ t) +
     theme_bw() +
+    ggtitle(title) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
           legend.key = element_blank(),
           plot.title = element_text(hjust = 0.5),
           strip.background = element_blank())
 }
 
-## Incident case/dynamic control ROC
+# Incident case/dynamic control ROC
 
 # fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The incident sensitivity considers those who die at time t
 # The dynamic specificity regards those who are still alive at time t 
 # This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t.
 
-IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities) {
+IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities, title) {
   
   ## Define a helper function to evaluate at various t
   risksetROC_helper <- function(t) {
@@ -109,42 +137,14 @@ IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities)
                mapping = aes(label = sprintf("%.3f", auc)), x = 0.5, y = 0.5) +
     facet_wrap( ~ t) +
     theme_bw() +
+    ggtitle(title) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
           legend.key = element_blank(),
           plot.title = element_text(hjust = 0.5),
           strip.background = element_blank())
 }
 
-## Calculate C-Index
 
-# Function to calculate the C-index
-calculate_c_index <- function(survival_object_train, genes_expression_train, models_coefficients, genes_expression_test, survival_test, survival_data) {
-  
-  # Fit a Cox regression model using the covariates
-  fit <- coxph(survival_object_train ~ ., 
-               data = subset(genes_expression_train, select = models_coefficients$ensembl_gene_id), # specify coefficients 
-               init = as.numeric(models_coefficients$Coef_value), # specify coefficient values
-               iter.max = 0) # force the software to keep those values
-  
-  # Construct a risk score based on the linear predictor on the test data
-  survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
-  
-  riskAUC = risksetAUC(Stime=survival_test$days,
-                       status = survival_test$vital_status,
-                       marker = survival_probabilities_test,
-                       method = "Cox",
-                       tmax = ceiling(max(survival_data$days)),
-                       plot = FALSE)
-  
-  # Store c-index value for the current model
-  c_index <-riskAUC$Cindex
-  
-  # Return the list of C-index values
-  return(c_index)
-}
-
-
-## Calculate martingale residuals and rank product
 
 # Calculate martingale residuals
 
