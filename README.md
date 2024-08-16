@@ -28,9 +28,9 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 
 1.  **Clone the Repository**:
 
-    ``` r
-    git clone <repository_url>
-    cd <repository_directory>
+    ``` bash
+    git clone https://github.com/BeatrizNL/Monet.git
+    cd Monet
     ```
 
 2.  **Restore the R Environment**:
