@@ -494,7 +494,7 @@ auc_values <- sapply(times, function(t) {
   roc_result$AUC
 })
 
-auc_df <- data.frame(Time = times, AUC = auc_values)
+auc_df <- data.frame(Time = times, AUC = round(auc_values, 3))
 print(auc_df)
 
 

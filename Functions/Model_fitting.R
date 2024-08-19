@@ -203,7 +203,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   fit_rsf_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features_rsf)),
                              survival_object,
                              family = "cox",
-                             alpha = 0.3)
+                             alpha = best_alpha)
   
   # Extract coefficients from the fitted model
   RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
@@ -234,7 +234,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   fit_causal_forest_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features_causal_forest)),
                                        survival_object,
                                        family = "cox",
-                                       alpha = 0.3)
+                                       alpha = best_alpha)
   
   
   # Extract coefficients from the fitted model
@@ -258,7 +258,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   fit_boruta_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = significant_features)),
                                 survival_object,
                                 family = "cox",
-                                alpha = 0.3)
+                                alpha = best_alpha)
   
   # Extract coefficients from the fitted model
   Boruta_Coefficients <- extractCoxRegressionCoefficients(fit_boruta_model)
