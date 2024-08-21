@@ -1,9 +1,0 @@
-Call:
-survdiff(formula = Surv(survival_train$days, survival_train$vital_status) ~ 
-    risk_groups)
-
-                  N Observed Expected (O-E)^2/E (O-E)^2/V
-risk_groups=High 66       55     36.9      8.90      14.7
-risk_groups=Low  67       48     66.1      4.96      14.7
-
- Chisq= 14.7  on 1 degrees of freedom, p= 1e-04 
