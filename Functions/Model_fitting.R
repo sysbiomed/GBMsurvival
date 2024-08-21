@@ -87,20 +87,23 @@ find_best_alpha_for_glmnet <- function(alpha_vector, genes_expression, survival_
                    init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
                    iter.max = 0) # force the software to keep those values
       
-      #---------------------------- Test the coefficients (predictor) found
-      # Construct a risk score based on the linear predictor on the test data
-      survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
-      
-      # Plot AUC based on incident/dynamic definition
-      riskAUC = risksetAUC(Stime=survival_test$days,
-                           status = survival_test$vital_status,
-                           marker = survival_probabilities_test,
-                           method = "Cox",
-                           tmax = ceiling(max(survival_data$days)),
-                           plot = FALSE)
-      
       # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-      c_index_values[j] <- riskAUC$Cindex 
+      c_index_values[j] <- summary(fit)$concordance[1]
+      
+      # #---------------------------- Test the coefficients (predictor) found
+      # # Construct a risk score based on the linear predictor on the test data
+      # survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
+      # 
+      # # Plot AUC based on incident/dynamic definition
+      # riskAUC = risksetAUC(Stime=survival_test$days,
+      #                      status = survival_test$vital_status,
+      #                      marker = survival_probabilities_test,
+      #                      method = "Cox",
+      #                      tmax = ceiling(max(survival_data$days)),
+      #                      plot = FALSE)
+      # 
+      # # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
+      # c_index_values[j] <- riskAUC$Cindex 
       
     }
     
@@ -176,14 +179,14 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   
   ############# Fit the Fast Unified Random Forest
   
-  # Prepare the data for the causal forest
+  # Prepare the data for the random forest
   data_randomforest <- data.frame(
     days = survival_train$days,
     vital_status = survival_train$vital_status,
     genes_expression_train
   )
   
-  # Prepare the data for the causal forest
+  # Prepare the data for the random forest
   data_randomforest <- data_randomforest[, -which(names(data_randomforest) %in% c("patient"))]
   
   # Fit the Random Survival Forest model
@@ -198,9 +201,10 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   z <- as.matrix(genes_expression_train[, -which(names(genes_expression_train) %in% c("patient"))])
   top_features_rsf <- colnames(z)[top_features_indices_rsf]
   
+  
   # Fit a Cox regression model to avoid having predictors that are highly correlated with others
   set.seed(1012)
-  fit_rsf_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features_rsf)),
+  fit_rsf_model <- cv.glmnet(as.matrix(subset(genes_expression_train, select = top_features_rsf)),
                              survival_object,
                              family = "cox",
                              alpha = best_alpha)
@@ -229,9 +233,10 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   top_features_indices_causal_forest <- order(importance_causal_forest, decreasing = TRUE)[1:100]
   top_features_causal_forest <- colnames(X)[top_features_indices_causal_forest]
   
+  
   # Fit a Cox regression model to avoid having predictors that are highly correlated with others
   set.seed(1012)
-  fit_causal_forest_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = top_features_causal_forest)),
+  fit_causal_forest_model <- cv.glmnet(as.matrix(subset(genes_expression_train, select = top_features_causal_forest)),
                                        survival_object,
                                        family = "cox",
                                        alpha = best_alpha)
@@ -244,7 +249,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   ############# Fit the Boruta model
   set.seed(1012) # For reproducibility
   boruta_output <- Boruta(survival_object ~ ., 
-                          data = genes_expression_train, 
+                          data = as.data.frame(prepareDataForCoxRegression(genes_expression_train)), 
                           doTrace = 2, 
                           maxRuns = 300,
                           pValue = 0.0001)
@@ -253,9 +258,10 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   significant_features <- getSelectedAttributes(boruta_output, 
                                                 withTentative = TRUE)
   
+  
   # Fit a Cox regression model to avoid having predictors that are highly correlated with others
   set.seed(1012)
-  fit_boruta_model <- cv.glmnet(prepareDataForCoxRegression(subset(genes_expression_train, select = significant_features)),
+  fit_boruta_model <- cv.glmnet(as.matrix(subset(genes_expression_train, select = significant_features)),
                                 survival_object,
                                 family = "cox",
                                 alpha = best_alpha)

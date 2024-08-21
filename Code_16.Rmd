@@ -209,7 +209,7 @@ survival_data <- orderDataByPatient(survival_data)
 ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
 
 # indicate the alpha values to test
-alpha_vector <- seq(0.1, 1, by = 0.9) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # evaluate the alpha values through multiple seeds
 results_df <- find_best_alpha_for_glmnet(alpha_vector, genes_expression, survival_data)
@@ -228,8 +228,8 @@ cat("Best alpha: ", "\n", best_alpha, "\n")
 # Models' names
 models_names_list <- c("GLMNET_Coefficients", "SIS_Coefficients", "ISIS_Coefficients", "RandomForest_Coefficients", "CausalForest_Coefficients", "Boruta_Coefficients")
 
-# Define the seeds for 10 iterations
-seeds <- seq(1000, 1100, by = 100)
+# Define the seeds for 3 iterations
+seeds <- seq(1000, 1100, by = 50)
 
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list <- list()
@@ -389,8 +389,8 @@ rownames(num_coeff_df_without_outliers) <- models_names_list
 for (i in seq_along(seeds)) {
   cat("Running analysis for seed:", seeds[i], "\n")
   
-  set.seed(i)
   # Split the data
+  set.seed(i)
   splited <- splitTestAndTrain(genes_expression_without_outliers, survival_data_without_outliers, 0.7)
   
   genes_expression_train <- splited$expression_train

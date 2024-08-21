@@ -3,7 +3,7 @@ survdiff(formula = Surv(survival_train$days, survival_train$vital_status) ~
     risk_groups)
 
                   N Observed Expected (O-E)^2/E (O-E)^2/V
-risk_groups=High 71       61     41.5      9.14      15.4
-risk_groups=Low  71       47     66.5      5.71      15.4
+risk_groups=High 66       55     36.9      8.90      14.7
+risk_groups=Low  67       48     66.1      4.96      14.7
 
- Chisq= 15.4  on 1 degrees of freedom, p= 9e-05 
+ Chisq= 14.7  on 1 degrees of freedom, p= 1e-04 

@@ -3,7 +3,7 @@ survdiff(formula = Surv(survival_data$days, survival_data$vital_status) ~
     survival_data$group)
 
                                   N Observed Expected (O-E)^2/E (O-E)^2/V
-survival_data$group=Non-Outlier 204      160   159.64  0.000811    0.0968
-survival_data$group=Outlier       9        1     1.36  0.095185    0.0968
+survival_data$group=Non-Outlier 191      149    148.5    0.0014    0.0188
+survival_data$group=Outlier      22       12     12.5    0.0167    0.0188
 
- Chisq= 0.1  on 1 degrees of freedom, p= 0.8 
+ Chisq= 0  on 1 degrees of freedom, p= 0.9 

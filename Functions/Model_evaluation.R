@@ -8,19 +8,22 @@ calculate_c_index <- function(survival_object_train, genes_expression_train, mod
                init = as.numeric(models_coefficients$Coef_value), # specify coefficient values
                iter.max = 0) # force the software to keep those values
   
-  # Construct a risk score based on the linear predictor on the test data
-  survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
+  # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
+  c_index <- summary(fit)$concordance[1]
   
-  riskAUC = risksetAUC(Stime=survival_test$days,
-                       status = survival_test$vital_status,
-                       marker = survival_probabilities_test,
-                       method = "Cox",
-                       tmax = ceiling(max(survival_data$days)),
-                       plot = FALSE)
-  
-  # Store c-index value for the current model
-  c_index <-riskAUC$Cindex
-  
+  # # Construct a risk score based on the linear predictor on the test data
+  # survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
+  # 
+  # riskAUC = risksetAUC(Stime=survival_test$days,
+  #                      status = survival_test$vital_status,
+  #                      marker = survival_probabilities_test,
+  #                      method = "Cox",
+  #                      tmax = ceiling(max(survival_data$days)),
+  #                      plot = FALSE)
+  # 
+  # # Store c-index value for the current model
+  # c_index <-riskAUC$Cindex
+  # 
   # Return the list of C-index values
   return(c_index)
 }
