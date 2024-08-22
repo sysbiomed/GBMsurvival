@@ -358,21 +358,6 @@ km_before_after$plot
 
 survdiff_km_before_after_output <- capture.output(survdiff(Surv(days, vital_status) ~ group, data = combined_survival_data))
 
-# # Grouping data by outliers
-# survival_data$group <- ifelse(rownames(survival_data) %in% outliers_rank_product, "Outlier", "Non-Outlier")
-# 
-# # Kaplan-Meier survival curves
-# fit_km <- survfit(Surv(days, vital_status) ~ group, data = survival_data)
-# plot_outliers <- ggsurvplot(fit_km, data = survival_data, pval = TRUE, risk.table = TRUE,
-#            title = "Kaplan-Meier Curves by Outlier Status",
-#            legend.title = "Group")
-# plot_outliers$plot
-# 
-# 
-# survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group)
-# survdiff_outliers_output <- capture.output(survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group))
-
-
 # Create the table with the specified information
 outliers_table <- data.frame(
   Index = outliers_rank_product,
@@ -512,6 +497,36 @@ print(Propo_hazards$table)
 # Construct a risk score based on the linear predictor on the test data
 survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id), type = "lp")
 
+# Visualize the distribution of the risk predictor
+plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities_test), aes(x = Risk_Predictor)) +
+                            geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") +
+                            geom_density(color = "red", adjust = 1.5) +
+                            labs(title = "Distribution of Risk Predictor",
+                                 x = "Risk Predictor (Linear Predictor)",
+                                 y = "Frequency") +
+                            theme_minimal()
+
+plot_distribution
+
+# Implement the separate2GroupsCox function
+#risk_groups <- separate2GroupsCox(object = fit, data = genes_expression_test)
+
+# Categorize individuals of the test data based on the median
+risk <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
+
+# Kaplan-Meier com a separação por High/ Low
+fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk)
+survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk)
+
+survdiff_output <- capture.output(survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk))
+plot <- ggsurvplot(fit_surv, 
+                   data = survival_test, 
+                   title = "Kaplan-Meier Curves by Risk Status",
+                   xlab = "Time (days)",
+                   legend.title = "Group")
+plot$plot
+
+
 #---------------------------- AUC
 
 
@@ -558,22 +573,8 @@ riskAUC = risksetAUC(Stime=survival_test$days,
 
 
 # Construct a risk score based on the linear predictor on the train data
-survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp")
+#survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp")
 
-# Categorize individuals of the test data based on the median
-risk <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
-
-# Kaplan-Meier com a separação por High/ Low
-fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk)
-survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk)
-
-survdiff_output <- capture.output(survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk))
-plot <- ggsurvplot(fit_surv, 
-                   data = survival_test, 
-                   title = "Kaplan-Meier Curves by Risk Status",
-                   xlab = "Time (days)",
-                   legend.title = "Group")
-plot$plot
 
 
 # Save a predictors genes and coefficients as a CSV file
