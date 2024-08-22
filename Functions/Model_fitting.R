@@ -4,7 +4,7 @@
 prepareDataForCoxRegression <- function(data) { 
   
   rownames(data) <- data$patient
-  data <- data[, -1]
+  data <- data %>% dplyr::select(-patient)
   data <- data.matrix(data)
   
   return(data)
@@ -16,12 +16,8 @@ extractCoxRegressionCoefficients <- function(cox_fit) {
   coefficients <- data.frame(as.matrix(coef(cox_fit, s = "lambda.min")))  # Choose the lambda that minimizes cross-validated error
   colnames(coefficients)[colnames(coefficients) == 'X1'] <- "Coef_value" # Change the column name 
   coefficients <- subset(coefficients, Coef_value != 0) # select only the coefficients that are not equal to zero
-  #rownames(coefficients) <- sub("\\..*", "", rownames(coefficients)) # Remove the version of the gene from its name(everything after the dot including the dot)
   coefficients$ensembl_gene_id <- rownames(coefficients)
   rownames(coefficients) <- NULL
-  
-  # Print min lambda
-  #cat("Lambda min:", "\n", cox_fit$lambda.min)
   
   return(coefficients)
 }
@@ -29,10 +25,7 @@ extractCoxRegressionCoefficients <- function(cox_fit) {
 
 ## Find the best alpha for Regularized Cox Regression model glmnet
 
-find_best_alpha_for_glmnet <- function(alpha_vector, genes_expression, survival_data) {
-  
-  # List of seed values
-  seed_values <- seq(1000, 1100, by = 50)
+find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expression, survival_data) {
   
   # Initialize an empty dataframe to store results
   results_df <- data.frame(matrix(nrow = length(alpha_vector), ncol = 2))
@@ -87,24 +80,14 @@ find_best_alpha_for_glmnet <- function(alpha_vector, genes_expression, survival_
                    init = as.numeric(CoxCoefficients$Coef_value), # specify coefficient values
                    iter.max = 0) # force the software to keep those values
       
+      # Construct a risk score based on the linear predictor on the test data
+      survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
+      
       # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-      c_index_values[j] <- summary(fit)$concordance[1]
-      
-      # #---------------------------- Test the coefficients (predictor) found
-      # # Construct a risk score based on the linear predictor on the test data
-      # survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
-      # 
-      # # Plot AUC based on incident/dynamic definition
-      # riskAUC = risksetAUC(Stime=survival_test$days,
-      #                      status = survival_test$vital_status,
-      #                      marker = survival_probabilities_test,
-      #                      method = "Cox",
-      #                      tmax = ceiling(max(survival_data$days)),
-      #                      plot = FALSE)
-      # 
-      # # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-      # c_index_values[j] <- riskAUC$Cindex 
-      
+      c_index_values[j] <- concordance.index(x = survival_probabilities_test,
+                                             surv.time = survival_test$days,
+                                             surv.event = survival_test$vital_status,
+                                             method = "noether")$c.index
     }
     
     # Store c-index values for the current alpha in the list

@@ -84,7 +84,7 @@ load_libraries <- function(...) {
   lapply(libs, require, character.only = TRUE)
 }
 
-invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "grf", "randomForestSRC", "Boruta", "timeROC", "qvalue"))
+invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "grf", "randomForestSRC", "Boruta", "timeROC", "qvalue", "survcomp"))
 
 ```
 
@@ -95,7 +95,7 @@ invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "
 source("Functions/Data_preparation.R")
 source("Functions/Model_evaluation.R")
 source("Functions/Model_fitting.R")
-source("Functions/Rank_product.R")
+source("Functions/Rank_product_test.R")
 
 ```
 
@@ -153,8 +153,8 @@ new_classification <- subset(new_classification, select = -c(TCGA.histological.t
 
 # Merge the dataframes to add the disease information keeping only common patients
 survival_data <- merge(survival_data, new_classification, by = "patient")
-survival_data <- subset(survival_data, select = -project_id)
-names(survival_data)[names(survival_data) == "classification.2021"] <- "project_id"
+survival_data <- subset(survival_data, select = -project_id) # remove old classification
+names(survival_data)[names(survival_data) == "classification.2021"] <- "project_id" # aplly the old name to the new classification
 
 ```
 
@@ -211,8 +211,11 @@ survival_data <- orderDataByPatient(survival_data)
 # indicate the alpha values to test
 alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
+# List of seed values
+seed_values <- seq(1000, 1100, by = 50)
+
 # evaluate the alpha values through multiple seeds
-results_df <- find_best_alpha_for_glmnet(alpha_vector, genes_expression, survival_data)
+results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values, genes_expression, survival_data)
 
 # select the best alpha
 best_alpha <- results_df$Alpha[which.max(results_df$Average_C_Index)]
@@ -267,12 +270,16 @@ for (i in seq_along(seeds)) {
   # Calculate and store C-index for each model
   
   for (j in seq_along(models_coefficients_list[[i]])) {
+    
     num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
     
     if (num_coeff_df[j, i] > 0) {
+      
       c_index_df[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test, survival_data)
+      
       num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
     } else {
+      
       # If the model has empty coefficients, set C-index to NA 
       c_index_df[j, i] <- NA
            }
@@ -325,19 +332,45 @@ outliers_rank_product <- which(qvalues<0.001) # Tightened the significance thres
 genes_expression_without_outliers <- genes_expression[-outliers_rank_product, ]
 survival_data_without_outliers <- survival_data[-outliers_rank_product, ]
 
-# Grouping data by outliers
-survival_data$group <- ifelse(rownames(survival_data) %in% outliers_rank_product, "Outlier", "Non-Outlier")
+## Kaplan-Meier Curves for Both Before and After Outlier Removal
 
-# Kaplan-Meier survival curves
-fit_km <- survfit(Surv(days, vital_status) ~ group, data = survival_data)
-plot_outliers <- ggsurvplot(fit_km, data = survival_data, pval = TRUE, risk.table = TRUE,
-           title = "Kaplan-Meier Curves by Outlier Status",
-           legend.title = "Group")
-plot_outliers$plot
+# Combine the datasets and create the grouping variable
+combined_survival_data <- rbind(
+  data.frame(survival_data, group = "With Outliers"),
+  data.frame(survival_data_without_outliers, group = "Without Outliers")
+)
 
+# Fit Kaplan-Meier survival model using the combined dataset
+fit_km_before_after <- survfit(Surv(days, vital_status) ~ group, data = combined_survival_data)
+survdiff(Surv(days, vital_status) ~ group, data = combined_survival_data)
 
-survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group)
-survdiff_outliers_output <- capture.output(survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group))
+# Create a combined Kaplan-Meier plot with both before and after curves
+km_before_after <- ggsurvplot(fit_km_before_after,
+                              data = combined_survival_data,
+                              title = "Kaplan-Meier Curves Pre and Post Outlier Removal",
+                              xlab = "Time (days)",
+                              ylab = "Survival Probability",
+                              legend.title = "Group",
+                              risk.table = TRUE
+                              )
+
+km_before_after$plot
+
+survdiff_km_before_after_output <- capture.output(survdiff(Surv(days, vital_status) ~ group, data = combined_survival_data))
+
+# # Grouping data by outliers
+# survival_data$group <- ifelse(rownames(survival_data) %in% outliers_rank_product, "Outlier", "Non-Outlier")
+# 
+# # Kaplan-Meier survival curves
+# fit_km <- survfit(Surv(days, vital_status) ~ group, data = survival_data)
+# plot_outliers <- ggsurvplot(fit_km, data = survival_data, pval = TRUE, risk.table = TRUE,
+#            title = "Kaplan-Meier Curves by Outlier Status",
+#            legend.title = "Group")
+# plot_outliers$plot
+# 
+# 
+# survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group)
+# survdiff_outliers_output <- capture.output(survdiff(Surv(survival_data$days, survival_data$vital_status) ~ survival_data$group))
 
 
 # Create the table with the specified information
@@ -357,10 +390,10 @@ print(outliers_table)
 
 
 # Write the captured output to a file
-writeLines(survdiff_outliers_output, "Results/survdiff_outliers_output.txt")
+writeLines(survdiff_km_before_after_output, "Results/survdiff_Before_After_Outliers_Removal.txt")
 
 # Save plot
-ggsave(filename = "Results/plot_with_without_outliers.pdf", plot = plot_outliers$plot, width = 6, height = 4)
+ggsave(filename = "Results/KM_Curve_Before_After_Outliers_Removal.pdf", plot = km_before_after$plot, width = 6, height = 4)
 
 # Save the table as a CSV file in the "Results" directory
 write.csv(outliers_table, file = "Results/outliers_table.csv", row.names = FALSE)
@@ -407,10 +440,13 @@ for (i in seq_along(seeds)) {
   # Calculate and store C-index for each model
   
   for (j in seq_along(models_coefficients_list_without_outliers[[i]])) {
+    
     num_coeff_df_without_outliers[j, i] <- length(models_coefficients_list_without_outliers[[i]][[j]]$ensembl_gene_id)
     
     if (num_coeff_df_without_outliers[j, i] > 0) {
+      
       c_index_df_without_outliers[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list_without_outliers[[i]][[j]], genes_expression_test, survival_test, survival_data)
+      
       num_coeff_df_without_outliers[j, i] <- length(models_coefficients_list_without_outliers[[i]][[j]]$ensembl_gene_id)
     } else {
       # If the model has empty coefficients, set C-index to NA 
@@ -532,7 +568,11 @@ fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk)
 survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk)
 
 survdiff_output <- capture.output(survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk))
-plot <- ggsurvplot(fit_surv, data = survival_test, title = "Kaplan-Meier Curves by Risk Status", legend.title = "Group")
+plot <- ggsurvplot(fit_surv, 
+                   data = survival_test, 
+                   title = "Kaplan-Meier Curves by Risk Status",
+                   xlab = "Time (days)",
+                   legend.title = "Group")
 plot$plot
 
 

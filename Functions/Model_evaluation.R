@@ -8,22 +8,15 @@ calculate_c_index <- function(survival_object_train, genes_expression_train, mod
                init = as.numeric(models_coefficients$Coef_value), # specify coefficient values
                iter.max = 0) # force the software to keep those values
   
-  # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-  c_index <- summary(fit)$concordance[1]
+  # Construct a risk score based on the linear predictor on the test data
+  survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
   
-  # # Construct a risk score based on the linear predictor on the test data
-  # survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
-  # 
-  # riskAUC = risksetAUC(Stime=survival_test$days,
-  #                      status = survival_test$vital_status,
-  #                      marker = survival_probabilities_test,
-  #                      method = "Cox",
-  #                      tmax = ceiling(max(survival_data$days)),
-  #                      plot = FALSE)
-  # 
-  # # Store c-index value for the current model
-  # c_index <-riskAUC$Cindex
-  # 
+  # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
+  c_index <- concordance.index(x = survival_probabilities_test,
+                               surv.time = survival_test$days,
+                               surv.event = survival_test$vital_status,
+                               method = "noether")$c.index
+  
   # Return the list of C-index values
   return(c_index)
 }
@@ -37,7 +30,6 @@ getGenesInfo <- function(coefficients) {
   coefficients$ensembl_gene_id <- sub("\\..*", "", coefficients$ensembl_gene_id) 
   
   # Connect to the Ensembl database
-  #ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
   ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl") #mirror = "www")
   # Get information about the genes
   gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", "description"),
@@ -174,7 +166,7 @@ calculate_martingale_residuals <- function(models_coefficients_list, genes_expre
   }
   
   # Remove NULL elements
-  residuals_list <- residuals_list[!sapply(residuals_list, is.null)]
+  residuals_list <- residuals_list[!sapply(residuals_list, is.null)] #These NULL elements are cases where the model had no coefficients 
   
   # Transform in a matrix
   residuals_matrix <- do.call(cbind, residuals_list)
@@ -185,11 +177,9 @@ calculate_martingale_residuals <- function(models_coefficients_list, genes_expre
 # Calculate rank product
 
 calculate_rank_product <- function(data_matrix) {
-  n_samples <- nrow(data_matrix)
-  n_models <- ncol(data_matrix)
-  
+
   ranks <- apply(data_matrix, 2, rank, ties.method = "first")
-  rank_product <- apply(ranks, 1, prod)
+  rank_product <- apply(ranks, 1, prod) 
   
   return(rank_product)
 }

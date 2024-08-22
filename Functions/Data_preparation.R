@@ -53,7 +53,7 @@ cleanSurvivalData <- function(data) {
 createGeneExpressionDataframe <- function(genes_of_interest, expression_measure, source_data, survivalData) {
   
   
-  genes_table <- as.data.frame(source_data@rowRanges@elementMetadata@listData) # Tranformar a informação sobre os genes numa dataframe
+  genes_table <- as.data.frame(source_data@rowRanges@elementMetadata@listData) # Tranformar a informação sobre os genes num dataframe
   genes_table <- genes_table[genes_table$gene_type == genes_of_interest, ] #selecionar os genes de interesse
   
   expression_data <- as.data.frame(source_data@assays@data@listData[[expression_measure]]) #dataframe com a expressão de todos os genes
@@ -63,7 +63,7 @@ createGeneExpressionDataframe <- function(genes_of_interest, expression_measure,
   expression_data <- expression_data[,colnames(expression_data) %in% survivalData$patient] # selecionar apenas os individuos dos quais temos informação sobre sobrevivência
   expression_data <- as.data.frame(t(expression_data)) #transpor a dataframe
   
-  data_frame <- expression_data[, colnames(expression_data) %in% genes_table$gene_id] #seleciinar a expressão dos genes de interesse
+  data_frame <- expression_data[, colnames(expression_data) %in% genes_table$gene_id] #selecionar a expressão dos genes de interesse
   
   return(data_frame)
 }
@@ -100,7 +100,7 @@ selectDataPerDisease <- function(disease, expression_data, survivalData) {
   survivalData <- survivalData[, c('patient', 'vital_status', 'days')] # keep only the columns of interest
   #expression data
   merged_data <- merge(survivalData, expression_data, by = "patient") # select only the patients from the gene expression dataframe with the desired disease and select only the patients whose the sum of the gene expression is not zero
-  expression_data <- merged_data[, c(-2,-3)] # delete the columns added above
+  expression_data <- merged_data %>% dplyr::select(-vital_status, -days) # delete the columns added above
   
   result <- list(survival_data = survivalData, genes_expression = expression_data)
   
@@ -114,9 +114,6 @@ normalizationEdgeR <- function(data) {
   genes_expression <- t(data[, -1])
   dge <- DGEList(counts = genes_expression)
   dge <- normLibSizes(dge, method = "TMM")
-  
-  # usando cpm
-  #normcounts <- cpm(dge)
   
   # usando o voom
   y <- voom(dge, plot=T)
@@ -140,23 +137,6 @@ orderDataByPatient <- function(data) {
   return(data)
 }
 
-# create a dataframe with categorized gene expression (high and low)
-categorizeGeneExpressionData <- function(expression_data) {
-  
-  categorized_expression_data <- data.frame(patient = expression_data$patient) # Create a data frame for categorized gene expression
-  genes_list <- colnames(expression_data[,-1]) #create a list of genes
-  
-  # Loop through each gene and categorize based on the median
-  for (gene in genes_list) {
-    # Calculate the median expression for the gene
-    median_expression <- median(expression_data[[gene]])
-    
-    # Create a grouping variable for the gene based on the median
-    categorized_expression_data[[gene]] <- ifelse(expression_data[[gene]] > median_expression, "high", "low")
-  }
-  
-  return(categorized_expression_data)
-}
 
 ## Split the data in train and test
 
@@ -173,11 +153,10 @@ splitTestAndTrain <- function(expression, survival, percentage) {
   # creating testing dataset 
   test_data <- subset(merged_data, sample == FALSE) 
   
-  # Separate survival from expression
-  survival_train <- train_data[, c(1:3)]
-  survival_test <- test_data[, c(1:3)]
-  expression_train <- train_data[, -c(2:3)]
-  expression_test <- test_data[, -c(2:3)]
+  survival_train <- train_data[, c('patient', 'vital_status', 'days')]
+  survival_test <- test_data[, c('patient', 'vital_status', 'days')]
+  expression_train <- train_data %>% dplyr::select(-vital_status, -days)
+  expression_test <- test_data %>% dplyr::select(-vital_status, -days)
   
   result <- list(survival_train = survival_train, survival_test = survival_test,
                  expression_train = expression_train, expression_test = expression_test)
