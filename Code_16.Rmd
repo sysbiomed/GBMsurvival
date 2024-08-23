@@ -84,7 +84,7 @@ load_libraries <- function(...) {
   lapply(libs, require, character.only = TRUE)
 }
 
-invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "grf", "randomForestSRC", "Boruta", "timeROC", "qvalue", "survcomp"))
+invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "grf", "randomForestSRC", "Boruta", "timeROC", "qvalue"))
 
 ```
 
@@ -209,9 +209,11 @@ survival_data <- orderDataByPatient(survival_data)
 ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
 
 # indicate the alpha values to test
+#alpha_vector <- c(1)
 alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # List of seed values
+#seed_values <- c(1000)
 seed_values <- seq(1000, 1100, by = 50)
 
 # evaluate the alpha values through multiple seeds
@@ -232,6 +234,7 @@ cat("Best alpha: ", "\n", best_alpha, "\n")
 models_names_list <- c("GLMNET_Coefficients", "SIS_Coefficients", "ISIS_Coefficients", "RandomForest_Coefficients", "CausalForest_Coefficients", "Boruta_Coefficients")
 
 # Define the seeds for 3 iterations
+#seeds <- c(1000)
 seeds <- seq(1000, 1100, by = 50)
 
 # Initialize a list to store the coefficients for each iteration
@@ -571,12 +574,6 @@ riskAUC = risksetAUC(Stime=survival_test$days,
                        tmax = ceiling(max(survival_data$days)),
                        plot = TRUE)
 
-
-# Construct a risk score based on the linear predictor on the train data
-#survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp")
-
-
-
 # Save a predictors genes and coefficients as a CSV file
 write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
 
@@ -590,6 +587,7 @@ writeLines(survdiff_output, "Results/survdiff_output.txt")
 ggsave(filename = "Results/plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4)
 ggsave(filename = "Results/Cumulative_ROC.pdf", plot = Cumulative_ROC, width = 6, height = 4)
 ggsave(filename = "Results/Incident_ROC.pdf", plot = Incident_ROC, width = 6, height = 4)
+ggsave(filename = "Results/distribution_of_risk_predictor.pdf", plot = plot_distribution, width = 6, height = 4)
 
 # Save a AUC 1, 3, and 5 years as a CSV file
 write.csv(auc_df, file = "Results/AUC_1_3_5", row.names = FALSE)

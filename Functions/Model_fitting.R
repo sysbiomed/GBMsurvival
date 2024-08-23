@@ -82,12 +82,10 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
       
       # Construct a risk score based on the linear predictor on the test data
       survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
+
+      c_index_values[j] <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test,
+                                       reverse=TRUE)$concordance
       
-      # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-      c_index_values[j] <- concordance.index(x = survival_probabilities_test,
-                                             surv.time = survival_test$days,
-                                             surv.event = survival_test$vital_status,
-                                             method = "noether")$c.index
     }
     
     # Store c-index values for the current alpha in the list

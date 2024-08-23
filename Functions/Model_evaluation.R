@@ -11,11 +11,8 @@ calculate_c_index <- function(survival_object_train, genes_expression_train, mod
   # Construct a risk score based on the linear predictor on the test data
   survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
   
-  # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-  c_index <- concordance.index(x = survival_probabilities_test,
-                               surv.time = survival_test$days,
-                               surv.event = survival_test$vital_status,
-                               method = "noether")$c.index
+  c_index <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test,
+                         reverse=TRUE)$concordance
   
   # Return the list of C-index values
   return(c_index)
