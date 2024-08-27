@@ -52,15 +52,15 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
   
   ## Define a helper function to evaluate at various t
   survivalROC_helper <- function(t) {
-    survivalROC(Stime        = survival_data$days,
+    survivalROC(Stime        = survival_data$days/365.25,
                 status       = survival_data$vital_status,
                 marker       = survival_probabilities,
                 predict.time = t,
                 method       = "NNE",
-                span = 0.25 * nrow(survival_data)^(-0.20))
+                span = 0.25 * sum(survival_data$vital_status)^(-0.20))
   }
   ## Evaluate every X days
-  survivalROC_data <- data_frame(t = ceiling(max(survival_data$days)/6) * c(1,2,3,4,5,6)) %>%
+  survivalROC_data <- data_frame(t = c(1,2,3,4,5,6)) %>%
     mutate(survivalROC = map(t, survivalROC_helper),
            ## Extract scalar AUC
            auc = map_dbl(survivalROC, magrittr::extract2, "AUC"),
@@ -71,6 +71,15 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
     dplyr::select(-survivalROC) %>%
     unnest() %>%
     arrange(t, FP, TP)
+  
+  ## Define custom labels for each time point
+  custom_labels <- c("1" = "Year 1", 
+                     "2" = "Year 2", 
+                     "3" = "Year 3", 
+                     "4" = "Year 4", 
+                     "5" = "Year 5", 
+                     "6" = "Year 6")
+  
   ## Plot
   survivalROC_data %>%
     ggplot(mapping = aes(x = FP, y = TP)) +
@@ -78,7 +87,7 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
     geom_line() +
     geom_label(data = survivalROC_data %>% dplyr::select(t,auc) %>% unique,
                mapping = aes(label = sprintf("%.3f", auc)), x = 0.5, y = 0.5) +
-    facet_wrap( ~ t) +
+    facet_wrap(~ t, labeller = labeller(t = custom_labels)) +  # Apply custom labels
     theme_bw() +
     ggtitle(title) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
@@ -98,16 +107,16 @@ IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities,
   
   ## Define a helper function to evaluate at various t
   risksetROC_helper <- function(t) {
-    risksetROC(Stime        = survival_data$days,
+    risksetROC(Stime        = survival_data$days/365.25,
                status       = survival_data$vital_status,
                marker       = survival_probabilities,
                predict.time = t,
                method       = "Cox",
                plot         = FALSE)
   }
-  ## Evaluate every 180 days
-  risksetROC_data <- data_frame(t = ceiling(max(survival_data$days)/6) * c(1,2,3,4,5,6)) %>%
-    mutate(risksetROC = map(t, risksetROC_helper),
+  ## Evaluate every year
+  risksetROC_data <- data_frame(t = c(1,2,3,4,5,6)) %>%
+     mutate(risksetROC = map(t, risksetROC_helper),
            ## Extract scalar AUC
            auc = map_dbl(risksetROC, magrittr::extract2, "AUC"),
            ## Put cut off dependent values in a data_frame
@@ -120,6 +129,15 @@ IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities,
     dplyr::select(-risksetROC) %>%
     unnest() %>%
     arrange(t, FP, TP)
+  
+  ## Define custom labels for each time point
+  custom_labels <- c("1" = "Year 1", 
+                     "2" = "Year 2", 
+                     "3" = "Year 3", 
+                     "4" = "Year 4", 
+                     "5" = "Year 5", 
+                     "6" = "Year 6")
+  
   ## Plot
   risksetROC_data %>%
     ggplot(mapping = aes(x = FP, y = TP)) +
@@ -127,7 +145,7 @@ IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities,
     geom_line() +
     geom_label(data = risksetROC_data %>% dplyr::select(t,auc) %>% unique,
                mapping = aes(label = sprintf("%.3f", auc)), x = 0.5, y = 0.5) +
-    facet_wrap( ~ t) +
+    facet_wrap(~ t, labeller = labeller(t = custom_labels)) +  # Apply custom labels
     theme_bw() +
     ggtitle(title) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5),

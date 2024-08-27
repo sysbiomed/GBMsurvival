@@ -512,7 +512,11 @@ plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities_t
 plot_distribution
 
 # Implement the separate2GroupsCox function
-#risk_groups <- separate2GroupsCox(object = fit, data = genes_expression_test)
+
+risk <- separate2GroupsCox(xdata = as.matrix(subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id)),
+                           ydata = data.frame(time = survival_test$days, status = survival_test$vital_status),
+                           chosen.btas = setNames(as.numeric(best_model_coefficients$Coef_value), best_model_coefficients$ensembl_gene_id))
+risk$plot
 
 # Categorize individuals of the test data based on the median
 risk <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
@@ -561,18 +565,21 @@ Cumulative_ROC
 
 #---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The incident sensitivity considers those who die at time t
-# The dynamic specificity regards those who are still alive at time t 
+# The dynamic specificity regards those who are still alive at time t
 # This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t.
 Incident_ROC <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC")
 Incident_ROC
 
 #Risk AUC based on Incident case/dynamic control
 riskAUC = risksetAUC(Stime=survival_test$days,
-                       status = survival_test$vital_status,
-                       marker = survival_probabilities_test,
-                       method = "Cox",
-                       tmax = ceiling(max(survival_data$days)),
-                       plot = TRUE)
+                     status = survival_test$vital_status,
+                     marker = survival_probabilities_test,
+                     method = "Cox",
+                     tmax = ceiling(max(survival_test$days)),
+                     type = "b",
+                     plot = TRUE,
+                     xlab = "Time (years)") 
+title(main= "AUC based on Incident case/dynamic control")
 
 # Save a predictors genes and coefficients as a CSV file
 write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
