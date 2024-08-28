@@ -511,13 +511,6 @@ plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities_t
 
 plot_distribution
 
-# Implement the separate2GroupsCox function
-
-risk <- separate2GroupsCox(xdata = as.matrix(subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id)),
-                           ydata = data.frame(time = survival_test$days, status = survival_test$vital_status),
-                           chosen.btas = setNames(as.numeric(best_model_coefficients$Coef_value), best_model_coefficients$ensembl_gene_id))
-risk$plot
-
 # Categorize individuals of the test data based on the median
 risk <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
 
@@ -536,26 +529,6 @@ plot$plot
 
 #---------------------------- AUC
 
-
-# Calculate AUC at specific time points with a specified span
-times <- c(1, 3, 5)
-n_events <- sum(survival_test$vital_status)
-span <- 0.25 * n_events^(-0.20) # equal to package developers span
-
-auc_values <- sapply(times, function(t) {
-  roc_result <- survivalROC(Stime = survival_test$days,
-                            status = survival_test$vital_status,
-                            marker = survival_probabilities_test,
-                            predict.time = t * 365.25,
-                            method = "NNE",
-                            span = span)
-  roc_result$AUC
-})
-
-auc_df <- data.frame(Time = times, AUC = round(auc_values, 3))
-print(auc_df)
-
-
 #---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The cumulative sensitivity considers those who have died by time t
 # The dynamic specificity regards those who are still alive at time t 
@@ -571,15 +544,18 @@ Incident_ROC <-IncidentCaseDynamicControlROC(survival_test, survival_probabiliti
 Incident_ROC
 
 #Risk AUC based on Incident case/dynamic control
-riskAUC = risksetAUC(Stime=survival_test$days,
+riskAUC = risksetAUC(Stime=survival_test$days/365.25,
                      status = survival_test$vital_status,
                      marker = survival_probabilities_test,
                      method = "Cox",
-                     tmax = ceiling(max(survival_test$days)),
+                     tmax = ceiling(max(survival_test$days))/365.25,
                      type = "b",
                      plot = TRUE,
                      xlab = "Time (years)") 
 title(main= "AUC based on Incident case/dynamic control")
+
+# Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
+cat("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex, "\n")
 
 # Save a predictors genes and coefficients as a CSV file
 write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
@@ -596,8 +572,8 @@ ggsave(filename = "Results/Cumulative_ROC.pdf", plot = Cumulative_ROC, width = 6
 ggsave(filename = "Results/Incident_ROC.pdf", plot = Incident_ROC, width = 6, height = 4)
 ggsave(filename = "Results/distribution_of_risk_predictor.pdf", plot = plot_distribution, width = 6, height = 4)
 
-# Save a AUC 1, 3, and 5 years as a CSV file
-write.csv(auc_df, file = "Results/AUC_1_3_5", row.names = FALSE)
+# Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
+write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControlROC", row.names = FALSE)
 
 ```
 
