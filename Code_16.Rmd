@@ -9,6 +9,7 @@ output:
 editor_options:
   chunk_output_type: inline
 ---
+
 # Install packages
 
 ```{r to_delete, results = 'hide', message=FALSE, warning=FALSE}
