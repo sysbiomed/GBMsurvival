@@ -8,7 +8,7 @@ This project aims to identify and validate glioma biomarkers that can distinguis
 
 -   **R Scripts**:
 
-    -   `Glioma_Biomarkers_Analysis.Rmd`: The main R Markdown file containing the entire analysis workflow.
+    -   `Code_16.Rmd`: The main R Markdown file containing the entire analysis workflow.
 
     -   `SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv`: A CSV file with simplified classification data used for analysis.
 
@@ -52,7 +52,7 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
     -   Knit the file to generate the HTML report:
 
         ``` r
-        rmarkdown::render("Glioma_Biomarkers_Analysis.Rmd")
+        rmarkdown::render("Code_16.Rmd")
         ```
 
 ### Project Workflow

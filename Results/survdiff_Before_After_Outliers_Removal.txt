@@ -2,7 +2,7 @@ Call:
 survdiff(formula = Surv(days, vital_status) ~ group, data = combined_survival_data)
 
                          N Observed Expected (O-E)^2/E (O-E)^2/V
-group=With Outliers    213      161      161  0.000371  0.000794
-group=Without Outliers 191      149      149  0.000403  0.000794
+group=With Outliers    213      161      161  0.000390  0.000843
+group=Without Outliers 188      146      146  0.000432  0.000843
 
  Chisq= 0  on 1 degrees of freedom, p= 1 

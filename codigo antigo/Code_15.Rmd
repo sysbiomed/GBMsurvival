@@ -524,16 +524,18 @@ find_best_alpha_for_glmnet <- function(alpha_vector, genes_expression, survival_
       # Construct a risk score based on the linear predictor on the test data
       survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
       
-      # Plot AUC based on incident/dynamic definition
-      riskAUC = risksetAUC(Stime=survival_test$days,
-                           status = survival_test$vital_status,
-                           marker = survival_probabilities_test,
-                           method = "Cox",
-                           tmax = ceiling(max(survival_data$days)),
-                           plot = FALSE)
+      # # Plot AUC based on incident/dynamic definition
+      # riskAUC = risksetAUC(Stime=survival_test$days,
+      #                      status = survival_test$vital_status,
+      #                      marker = survival_probabilities_test,
+      #                      method = "Cox",
+      #                      tmax = ceiling(max(survival_data$days)),
+      #                      plot = FALSE)
+      # 
+      # # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
+      # c_index_values[j] <- riskAUC$Cindex 
       
-      # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
-      c_index_values[j] <- riskAUC$Cindex 
+      c_index_values[j] <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test, reverse=TRUE)$concordance
       
     }
     
@@ -1137,7 +1139,8 @@ survival_data <- orderDataByPatient(survival_data)
 ```{r message=FALSE, warning=FALSE}
 #```{r results = 'hide', message=FALSE, warning=FALSE}
 # indicate the alpha values to test
-alpha_vector <- seq(0.1, 1, by = 0.9) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+alpha_vector <- c(0.1)
+#alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # evaluate the alpha values through multiple seeds
 results_df <- find_best_alpha_for_glmnet(alpha_vector, genes_expression, survival_data)

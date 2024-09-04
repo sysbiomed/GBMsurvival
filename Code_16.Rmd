@@ -210,8 +210,8 @@ survival_data <- orderDataByPatient(survival_data)
 ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
 
 # indicate the alpha values to test
-#alpha_vector <- c(1)
-alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+alpha_vector <- c(0.1)
+#alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # List of seed values
 #seed_values <- c(1000)

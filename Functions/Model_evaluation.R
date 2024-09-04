@@ -11,8 +11,7 @@ calculate_c_index <- function(survival_object_train, genes_expression_train, mod
   # Construct a risk score based on the linear predictor on the test data
   survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
   
-  c_index <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test,
-                         reverse=TRUE)$concordance
+  c_index <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test, reverse=TRUE)$concordance
   
   # Return the list of C-index values
   return(c_index)
