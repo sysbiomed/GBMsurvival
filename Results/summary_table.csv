@@ -1,7 +1,7 @@
 "Model","C_Index_Avg","C_Index_Std_Dev","Coeff_Num_Avg","Coeff_Num_Std_Dev","Non_Convergence_Perc"
-"GLMNET_Coefficients",0.594,0.008,60.3,16.2,0
-"SIS_Coefficients",0.581,0.032,5,4.6,33.3333333333333
-"ISIS_Coefficients",0.543,0.05,4.3,1.2,0
-"RandomForest_Coefficients",0.591,0.04,30.7,6.7,0
-"CausalForest_Coefficients",0.548,0.02,9.7,6.7,0
-"Boruta_Coefficients",0.561,0.031,5.3,2.3,0
+"GLMNET_Coefficients",0.598,0.006,65,19.8,0
+"SIS_Coefficients",0.603,NA,3,4.2,50
+"ISIS_Coefficients",0.542,0.071,5,0,0
+"RandomForest_Coefficients",0.575,0.041,34.5,0.7,0
+"CausalForest_Coefficients",0.541,0.023,7.5,7.8,0
+"Boruta_Coefficients",0.579,0.003,6,2.8,0

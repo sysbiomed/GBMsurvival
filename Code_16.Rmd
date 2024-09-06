@@ -12,68 +12,8 @@ editor_options:
 
 # Install packages
 
-```{r to_delete, results = 'hide', message=FALSE, warning=FALSE}
-# # List of required packages
-# required_packages <- c(
-#   "lsa", "SnowballC", "propagate", "minpack.lm", "ff", "bit", "Rcpp", "tmvtnorm", "gmm",
-#   "sandwich", "mvtnorm", "VennDiagram", "futile.logger",
-#   "SIS", "survMisc", "risksetROC", "MASS", "survivalROC", "caTools", "pROC",
-#   "writexl", "openxlsx", "caret", "lattice", "glmnet", "Matrix", "survminer", "ggpubr",
-#   "survival", "DT", "lubridate", "forcats", "stringr", "purrr", "readr", "tidyr", "ggplot2",
-#   "tidyverse", "tibble", "dplyr", "matrixStats", "grf", "randomForestSRC", "Boruta", "timeROC",
-#   "qvalue"
-# )
-# 
-# # Install missing packages
-# installed_packages <- rownames(installed.packages())
-# for (pkg in required_packages) {
-#   if (!pkg %in% installed_packages) {
-#     install.packages(pkg)
-#   }
-# }
-# 
-# # Load packages
-# invisible(lapply(required_packages, require, character.only = TRUE))
-# 
-# # List of Bioconductor packages
-# bioc_packages <- c(
-#   "MultiAssayExperiment", "TCGAbiolinks", "SummarizedExperiment", "Biobase", 
-#   "GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", "BiocGenerics", 
-#   "MatrixGenerics", "matrixStats", "glmSparseNet", "MultiAssayExperiment",
-#   "edgeR", "limma", "biomaRt", "TCGAbiolinks", "SummarizedExperiment", 
-#   "Biobase", "GenomicRanges", "GenomeInfoDb", "IRanges", "S4Vectors", 
-#   "BiocGenerics", "MatrixGenerics"
-# )
-# 
-# # Install Bioconductor packages if not installed
-# if (!requireNamespace("BiocManager", quietly = TRUE)) {
-#   install.packages("BiocManager")
-# }
-# for (pkg in bioc_packages) {
-#   if (!pkg %in% installed_packages) {
-#     BiocManager::install(pkg)
-#   }
-# }
-# 
-# 
-# # Load Bioconductor packages
-# invisible(lapply(bioc_packages, require, character.only = TRUE))
-# 
-# # List of CRAN packages
-# cran_packages <- setdiff(required_packages, bioc_packages)
-# 
-# # Install missing CRAN packages
-# installed_packages <- rownames(installed.packages())
-# for (pkg in cran_packages) {
-#   if (!pkg %in% installed_packages) {
-#     install.packages(pkg)
-#   }
-# }
-# 
-# # Load CRAN packages
-# invisible(lapply(cran_packages, require, character.only = TRUE))
-# 
-# #renv::restore()
+```{r Install_packages, results = 'hide', message=FALSE, warning=FALSE}
+#renv::restore()
 ```
 
 # Load libraries
@@ -89,10 +29,17 @@ invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "
 
 ```
 
-# Download functions
+# Prepare the environment and download functions
 
-```{r Download_functions}
+```{r Prepare_the_environment_and_download_functions}
 
+# clean current environment
+rm(list = ls())
+
+# Capture the sessionInfo() output and write it to a file
+writeLines(capture.output(sessionInfo()), con = "sessioninfo.txt")
+
+# download the functions
 source("Functions/Data_preparation.R")
 source("Functions/Model_evaluation.R")
 source("Functions/Model_fitting.R")
@@ -215,10 +162,10 @@ alpha_vector <- c(0.1)
 
 # List of seed values
 #seed_values <- c(1000)
-seed_values <- seq(1000, 1100, by = 50)
+seed_values_alpha <- seq(1, 5, by = 1)
 
 # evaluate the alpha values through multiple seeds
-results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values, genes_expression, survival_data)
+results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values_alpha, genes_expression, survival_data)
 
 # select the best alpha
 best_alpha <- results_df$Alpha[which.max(results_df$Average_C_Index)]
@@ -236,7 +183,7 @@ models_names_list <- c("GLMNET_Coefficients", "SIS_Coefficients", "ISIS_Coeffici
 
 # Define the seeds for 3 iterations
 #seeds <- c(1000)
-seeds <- seq(1000, 1100, by = 50)
+seeds <- seq(1, 10, by = 1)
 
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list <- list()
@@ -475,7 +422,7 @@ best_model_coefficients <- models_coefficients_list[[1]][[best_model_index]] # o
 gene_info_result <- getGenesInfo(best_model_coefficients)
 print(gene_info_result)
 
-set.seed(1000)
+set.seed(1)
 # Split the data
 splited <- splitTestAndTrain(genes_expression_without_outliers, survival_data_without_outliers, 0.7)
   
@@ -633,4 +580,10 @@ writeLines(survdiff_output_train_data, "Results/survdiff_output_train_data.txt")
 # Save plot
 ggsave(filename = "Results/plot_high_low_risk_train_data.pdf", plot = plot_train_data$plot, width = 6, height = 4)
 
+```
+
+# Snaphot the packages installed
+
+```{r Snapshot_packages, results = 'hide', message=FALSE, warning=FALSE}
+renv::snapshot()
 ```
