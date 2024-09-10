@@ -110,9 +110,9 @@ names(survival_data)[names(survival_data) == "classification.2021"] <- "project_
 
 ```{r Select_and_prepare_expression_data}
 # Extrair dataframe com a expressão dos genes de interesse
-genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded", TCGA_RNA, survival_data)
+#genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded", TCGA_RNA, survival_data)
 #genes_expression <- createGeneExpressionDataframe("lncRNA", "unstranded", TCGA_RNA, survival_data)
-#genes_expression <- createGeneExpressionDataframe("miRNA", "unstranded", TCGA_RNA, survival_data)       #<------------ indicar os dados 
+genes_expression <- createGeneExpressionDataframe("miRNA", "unstranded", TCGA_RNA, survival_data)       #<------------ indicar os dados 
 
 # Clean the gene expression dataframe
 genes_expression <- cleanGeneExpressionData(genes_expression)
@@ -157,31 +157,6 @@ survival_data <- orderDataByPatient(survival_data)
 ```{r Perform_univariate_cox_regression, message=FALSE, warning=FALSE}
 
 # Run univariate Cox regression for each variable
-univariate_cox <- function(survivaldata, expressiondata) {
-  
-  results <- data.frame()
-
-  # Define survival object
-  survival_object <- Surv(time = survivaldata$days, event = survivaldata$vital_status)
-  
-  # Define the covariates to study
-  covariates <- colnames(expressiondata)[colnames(expressiondata) != "patient"]
-  
-  for (cov in covariates) {
-    
-    # Fit a Cox regression model using the covariates
-    uni_cox <- coxph(survival_object ~ .,
-                 data = subset(expressiondata, select = cov))
-    
-    summary_uni_cox <- summary(uni_cox)
-    
-    p_value <- summary_uni_cox$coefficients[5]  # p-value
-    results <- rbind(results, data.frame(variable = cov, p_value = p_value))
-  }
-  
-  return(results)
-}
-
 uni_results <- univariate_cox(survival_data, genes_expression)
 
 # Set your significance threshold (e.g., p-value < 0.05)
@@ -204,12 +179,12 @@ genes_expression <- genes_expression[, c("patient", significant_variable_names)]
 ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
 
 # indicate the alpha values to test
-alpha_vector <- c(0.1)
-#alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+#alpha_vector <- c(0.1)
+alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # List of seed values
-#seed_values <- c(1000)
-seed_values_alpha <- seq(1, 5, by = 1)
+#seed_values_alpha <- c(1000)
+seed_values_alpha <- seq(1, 10, by = 1)
 
 # evaluate the alpha values through multiple seeds
 results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values_alpha, genes_expression, survival_data)
@@ -261,10 +236,10 @@ for (i in seq_along(seeds)) {
   
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
-  
+  cat("ok")
   # Fit models
   models_coefficients_list[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
-  
+  cat("estranho")
   # Calculate and store C-index for each model
   
   for (j in seq_along(models_coefficients_list[[i]])) {

@@ -1,5 +1,34 @@
 ## Regularized Cox Regression functions
 
+
+#univariate Cox regression for each variable
+univariate_cox <- function(survivaldata, expressiondata) {
+  
+  results <- data.frame()
+  
+  # Define survival object
+  survival_object <- Surv(time = survivaldata$days, event = survivaldata$vital_status)
+  
+  # Define the covariates to study
+  covariates <- colnames(expressiondata)[colnames(expressiondata) != "patient"]
+  
+  for (cov in covariates) {
+    
+    # Fit a Cox regression model using the covariates
+    uni_cox <- coxph(survival_object ~ .,
+                     data = subset(expressiondata, select = cov))
+    
+    summary_uni_cox <- summary(uni_cox)
+    
+    p_value <- summary_uni_cox$coefficients[5]  # p-value
+    results <- rbind(results, data.frame(variable = cov, p_value = p_value))
+  }
+  
+  return(results)
+}
+
+
+
 #preparar os dados para a Regularized Cox Regression
 prepareDataForCoxRegression <- function(data) { 
   
@@ -103,9 +132,8 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
       # 
       # c_index_values[j] <- riskAUC$Cindex
       
-      #c_index_values[j] <- summary(fit)$concordance[1]
-      
-      
+      # c_index_values[j] <- summary(fit)$concordance[1]
+    
     }
     
     # Store c-index values for the current alpha in the list
@@ -184,8 +212,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   data_randomforest <- data.frame(
     days = survival_train$days,
     vital_status = survival_train$vital_status,
-    genes_expression_train
-  )
+    genes_expression_train)
   
   # Prepare the data for the random forest
   data_randomforest <- data_randomforest[, -which(names(data_randomforest) %in% c("patient"))]
@@ -199,9 +226,15 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   
   # Select the top features based on importance
   top_features_indices_rsf <- order(importance_rsf, decreasing = TRUE)[1:100]
+  
+  # Convert the 'genes_expression_train' data frame to a matrix, excluding the column "patient" by finding its index and removing it
   z <- as.matrix(genes_expression_train[, -which(names(genes_expression_train) %in% c("patient"))])
+  
+  # Retrieve the column names (i.e., gene names) from the matrix 'z' and subset them using 'top_features_indices_rsf', which contains the indices of the top features (genes)
   top_features_rsf <- colnames(z)[top_features_indices_rsf]
   
+  # remove NA features
+  top_features_rsf <- top_features_rsf[!is.na(top_features_rsf)]
   
   # Fit a Cox regression model to avoid having predictors that are highly correlated with others
   set.seed(1012)
@@ -212,10 +245,11 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   
   # Extract coefficients from the fitted model
   RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
- 
+  
   
   ############# Fit the Causal forest model
-  # Prepare the data for the causal forest
+  
+  # Convert the 'genes_expression_train' data frame to a matrix, excluding the column "patient" by finding its index and removing it
   X <- as.matrix(genes_expression_train[, -which(names(genes_expression_train) %in% c("patient"))])
   
   # Train the causal forest
@@ -232,8 +266,12 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   
   # Select the top features based on importance
   top_features_indices_causal_forest <- order(importance_causal_forest, decreasing = TRUE)[1:100]
+  
+  # Retrieve the column names (i.e., gene names) from the matrix 'x' and subset them using 'top_features_indices_causal_forest', which contains the indices of the top features (genes)
   top_features_causal_forest <- colnames(X)[top_features_indices_causal_forest]
   
+  # remove NA features
+  top_features_causal_forest <- top_features_causal_forest[!is.na(top_features_causal_forest)]
   
   # Fit a Cox regression model to avoid having predictors that are highly correlated with others
   set.seed(1012)
