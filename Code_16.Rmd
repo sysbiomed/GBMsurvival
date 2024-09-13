@@ -152,39 +152,17 @@ survival_data <- orderDataByPatient(survival_data)
 
 ```
 
-# Perform univariate cox regression to reduce dimensionality
-
-```{r Perform_univariate_cox_regression, message=FALSE, warning=FALSE}
-
-# Run univariate Cox regression for each variable
-uni_results <- univariate_cox(survival_data, genes_expression)
-
-# Set your significance threshold (e.g., p-value < 0.05)
-significant_threshold <- 0.05
-
-# Extract the names of the significant variables
-significant_variable_names <- uni_results$variable[uni_results$p_value < significant_threshold]
-
-# save the original genes expression data with a different name
-genes_expression_original <- genes_expression
-
-# reduce the genes expression data frame to only the colunmns of interest
-genes_expression <- genes_expression[, c("patient", significant_variable_names)]
-
-```
-
-
 # Find the best alpha for Regularized Cox Regression model glmnet
 
 ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
 
 # indicate the alpha values to test
-alpha_vector <- c(0.1)
-#alpha_vector <- seq(0, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+#alpha_vector <- c(0.1)
+alpha_vector <- seq(0, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # List of seed values
-seed_values_alpha <- c(1)
-#seed_values_alpha <- seq(1, 10, by = 1)
+#seed_values_alpha <- c(1)
+seed_values_alpha <- seq(1, 10, by = 1)
 
 # evaluate the alpha values through multiple seeds
 results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values_alpha, genes_expression, survival_data)
@@ -201,11 +179,12 @@ cat("Best alpha: ", "\n", best_alpha, "\n")
 ```{r Fit_and_Explore_the_Models, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("GLMNET_Coefficients", "SIS_Coefficients", "ISIS_Coefficients", "RandomForest_Coefficients", "CausalForest_Coefficients", "Boruta_Coefficients")
+models_names_list <- c("GLMNET", "SIS", "ISIS", "RandomForest+GLMNET", "CausalForest+GLMNET", "Boruta+GLMNET")
+
 
 # Define the seeds for 3 iterations
-seeds <- c(1)
-#seeds <- seq(1, 10, by = 1)
+#seeds <- c(1)
+seeds <- seq(1, 10, by = 1)
 
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list <- list()
@@ -224,7 +203,8 @@ rownames(num_coeff_df) <- models_names_list
 
 # Loop through the seeds and run the analysis
 for (i in seq_along(seeds)) {
-  
+  cat("Running analysis for seed:", seeds[i], "\n")
+
   set.seed(i)
   # Split the data
   splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
@@ -233,6 +213,13 @@ for (i in seq_along(seeds)) {
   survival_train <- splited$survival_train
   genes_expression_test <- splited$expression_test
   survival_test <- splited$survival_test
+  
+  # Run univariate Cox regression for each variable
+  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+
+  # reduce the genes expression data frame to only the colunmns of interest
+  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+  print(ncol(genes_expression_train))
   
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
@@ -261,7 +248,6 @@ for (i in seq_along(seeds)) {
 
 # Create a summary table
 summary_table <- data.frame(
-  Model = models_names_list,
   C_Index_Avg = round(apply(c_index_df, 1, mean, na.rm = TRUE), 3),
   C_Index_Std_Dev = round(apply(c_index_df, 1, sd, na.rm = TRUE), 3),
   Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
@@ -300,7 +286,14 @@ genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
 genes_expression_test <- splited$expression_test
 survival_test <- splited$survival_test
-  
+
+# Run univariate Cox regression for each variable
+significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+
+# reduce the genes expression data frame to only the colunmns of interest
+genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+print(ncol(genes_expression_train))
+
 # Define survival object
 survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
 
@@ -399,7 +392,6 @@ write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControl
 
 ```{r Enrichment_Analysis, results = 'hide', message=FALSE, warning=FALSE}
 
-
 # Convert Ensembl IDs to Entrez IDs
 genes_list <- bitr(gene_info_result$ensembl_gene_id,
                     fromType = "ENSEMBL",  # Input type is Ensembl Gene IDs
@@ -415,26 +407,26 @@ go_enrichment <- enrichGO(gene          = genes_list$ENTREZID,
                           pvalueCutoff  = 0.05,       # p-value threshold
                           qvalueCutoff  = 0.02)        # q-value (FDR) threshold
 
-# View results
-summary(go_enrichment)
 
 # KEGG Pathway Enrichment Analysis
 kegg_enrichment <- enrichKEGG(gene         = genes_list$ENTREZID,
                               organism     = 'hsa',        # "hsa" for human genes
                               pvalueCutoff = 0.05)
 
-# View results
-head(kegg_enrichment)
 
-# Dot plot for GO enrichment results
-dotplot(go_enrichment, showCategory = 10)  # Show top 10 GO terms
+# Dot plot for GO enrichment results if results are found
+if (nrow(as.data.frame(go_enrichment)) > 0) {
+  dotplot(go_enrichment, showCategory = 10)  # Show top 10 GO terms
+} else {
+  cat("No enriched GO terms to plot.", "\n")
+}
 
-# Dot plot for KEGG enrichment results
-dotplot(kegg_enrichment, showCategory = 10)  # Show top 10 KEGG pathways
-
-# Visualize a specific KEGG pathway (e.g., "hsa04110")
-#pathview(gene.data = gene_list, pathway.id = "hsa04110", species = "hsa")
-
+# Dot plot for GO enrichment results if results are found
+if (nrow(as.data.frame(kegg_enrichment)) > 0) {
+  dotplot(kegg_enrichment, showCategory = 10)  # Show top 10 GO terms
+} else {
+  cat("No enriched KEGG terms to plot.", "\n")
+}
 
 ```
 
@@ -552,6 +544,13 @@ for (i in seq_along(seeds)) {
   genes_expression_test <- splited$expression_test
   survival_test <- splited$survival_test
   
+  # Run univariate Cox regression for each variable
+  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+
+  # reduce the genes expression data frame to only the colunmns of interest
+  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+  print(ncol(genes_expression_train))
+
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
   
@@ -578,7 +577,6 @@ for (i in seq_along(seeds)) {
 
 # Create a summary table
 summary_table_without_outliers <- data.frame(
-  Model = models_names_list,
   C_Index_Avg = round(apply(c_index_df_without_outliers, 1, mean, na.rm = TRUE), 3),
   C_Index_Std_Dev = round(apply(c_index_df_without_outliers, 1, sd, na.rm = TRUE), 3),
   Coeff_Num_Avg = round(apply(num_coeff_df_without_outliers, 1, mean), 1),

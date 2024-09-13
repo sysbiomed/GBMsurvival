@@ -2,7 +2,7 @@
 
 
 #univariate Cox regression for each variable
-univariate_cox <- function(survivaldata, expressiondata) {
+univariate_cox <- function(survivaldata, expressiondata, significant_threshold) {
   
   results <- data.frame()
   
@@ -15,16 +15,19 @@ univariate_cox <- function(survivaldata, expressiondata) {
   for (cov in covariates) {
     
     # Fit a Cox regression model using the covariates
-    uni_cox <- coxph(survival_object ~ .,
-                     data = subset(expressiondata, select = cov))
+    set.seed(1)
+    uni_cox <- coxph(survival_object ~ ., data = subset(expressiondata, select = cov))
     
     summary_uni_cox <- summary(uni_cox)
     
     p_value <- summary_uni_cox$coefficients[5]  # p-value
     results <- rbind(results, data.frame(variable = cov, p_value = p_value))
+    
+    # Extract the names of the significant variables
+    significant_variable_names <- results$variable[results$p_value < significant_threshold]
   }
   
-  return(results)
+  return(significant_variable_names)
 }
 
 
@@ -80,6 +83,13 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
       survival_train <- splited$survival_train
       genes_expression_test <- splited$expression_test
       survival_test <- splited$survival_test
+      
+      # Run univariate Cox regression for each variable
+      significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+
+      # reduce the genes expression data frame to only the colunmns of interest
+      genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+      print(ncol(genes_expression_train))
       
       # Define survival object
       survival_object <- Surv(time = survival_train$days, event = survival_train$vital_status)
