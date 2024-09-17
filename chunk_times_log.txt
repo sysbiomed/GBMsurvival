@@ -1,0 +1,3 @@
+Chunk 'Prepare the environment, report chunk status and sessioninfo' finished at: 2024-09-17 14:59:08
+Chunk 'Download functions' finished at: 2024-09-17 14:59:08
+Chunk 'Folder to store results' finished at: 2024-09-17 14:59:09

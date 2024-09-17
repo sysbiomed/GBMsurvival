@@ -29,9 +29,9 @@ invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "
 
 ```
 
-# Prepare the environment and download functions
+# Prepare the environment, report chunk status and sessioninfo
 
-```{r Prepare_the_environment_and_download_functions}
+```{r Prepare_the_environment_report_chunk_status_and_sessioninfo}
 
 # clean current environment
 rm(list = ls())
@@ -39,23 +39,55 @@ rm(list = ls())
 # Capture the sessionInfo() output and write it to a file
 writeLines(capture.output(sessionInfo()), con = "sessioninfo.txt")
 
+# Delete the file if it exists 
+if (file.exists("chunk_times_log.txt")) {
+  file.remove("chunk_times_log.txt")
+}
+
+
+log_chunk_end_time <- function(chunk_label, log_file = "chunk_times_log.txt") {
+  # Get the current time
+  time_stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  
+  # Create the log message
+  log_message <- paste0("Chunk '", chunk_label, "' finished at: ", time_stamp, "\n")
+  
+  # Print the log message to console (optional)
+  cat(log_message)
+  
+  # Append the log message to the file
+  cat(log_message, file = log_file, append = TRUE)
+}
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo", log_file = "chunk_times_log.txt")
+```
+
+# Download functions
+
+```{r Download_functions}
+
 # download the functions
 source("Functions/Data_preparation.R")
 source("Functions/Model_evaluation.R")
 source("Functions/Model_fitting.R")
 source("Functions/Rank_product_test.R")
 
+# write on the chunk end time file
+log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
 ```
 
-# Store results
+# Folder to store results
 
-```{r Store_results}
+```{r Folder_to_store_results}
 
 # Ensure the 'Results' directory exists
 if (!dir.exists("Results")) {
   dir.create("Results")
 }
 
+# write on the chunk end time file
+log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
 ```
 
 # Download data
@@ -76,7 +108,8 @@ if (!dir.exists("GDCdata")) {
 
 TCGA_RNA <- GDCprepare(query = query_RNA)
 
-
+# write on the chunk end time file
+log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
 ```
 
 # Prepare survival data
@@ -89,6 +122,9 @@ survival_data <- createSurvivalDataFrame(columns_to_extract, TCGA_RNA)
 
 # Clean and prepare survival data
 survival_data <- cleanSurvivalData(survival_data)
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare survival data", log_file = "chunk_times_log.txt")
 ```
 
 # Assign a new classification to the data
@@ -104,6 +140,9 @@ survival_data <- merge(survival_data, new_classification, by = "patient")
 survival_data <- subset(survival_data, select = -project_id) # remove old classification
 names(survival_data)[names(survival_data) == "classification.2021"] <- "project_id" # aplly the old name to the new classification
 
+
+# write on the chunk end time file
+log_chunk_end_time("Assign a new classification to the data", log_file = "chunk_times_log.txt")
 ```
 
 # Select and prepare expression data
@@ -116,6 +155,9 @@ genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded"
 
 # Clean the gene expression dataframe
 genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# write on the chunk end time file
+log_chunk_end_time("Select and prepare expression data", log_file = "chunk_times_log.txt")
 ```
 
 # Disease selection and data normalization
@@ -150,6 +192,8 @@ genes_expression <- cleanGeneExpressionData(genes_expression)
 genes_expression <- orderDataByPatient(genes_expression)
 survival_data <- orderDataByPatient(survival_data)
 
+# write on the chunk end time file
+log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
 
 # Find the best alpha for Regularized Cox Regression model glmnet
@@ -158,7 +202,7 @@ survival_data <- orderDataByPatient(survival_data)
 
 # indicate the alpha values to test
 #alpha_vector <- c(0.1)
-alpha_vector <- seq(0, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
 
 # List of seed values
 #seed_values_alpha <- c(1)
@@ -172,6 +216,9 @@ best_alpha <- results_df$Alpha[which.max(results_df$Average_C_Index)]
 
 results_df
 cat("Best alpha: ", "\n", best_alpha, "\n")
+
+# write on the chunk end time file
+log_chunk_end_time("Find the best alpha for Regularized Cox Regression model glmnet", log_file = "chunk_times_log.txt")
 ```
 
 # Fit and Explore the Models
@@ -260,6 +307,8 @@ write.csv(summary_table, file = "Results/summary_table.csv", row.names = FALSE)
 
 print(summary_table)
 
+# write on the chunk end time file
+log_chunk_end_time("Fit and Explore the Models", log_file = "chunk_times_log.txt")
 ```
 
 # Analyse the best model
@@ -386,6 +435,8 @@ ggsave(filename = "Results/distribution_of_risk_predictor.pdf", plot = plot_dist
 # Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
 write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControlROC", row.names = FALSE)
 
+# write on the chunk end time file
+log_chunk_end_time("Analyse the best model", log_file = "chunk_times_log.txt")
 ```
 
 # Enrichment Analysis
@@ -428,6 +479,8 @@ if (nrow(as.data.frame(kegg_enrichment)) > 0) {
   cat("No enriched KEGG terms to plot.", "\n")
 }
 
+# write on the chunk end time file
+log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt")
 ```
 
 # Indentify oultiers with the rank product test
@@ -510,6 +563,8 @@ ggsave(filename = "Results/KM_Curve_Before_After_Outliers_Removal.pdf", plot = k
 # Save the table as a CSV file in the "Results" directory
 write.csv(outliers_table, file = "Results/outliers_table.csv", row.names = FALSE)
 
+# write on the chunk end time file
+log_chunk_end_time("Indentify oultiers with the rank product test", log_file = "chunk_times_log.txt")
 ```
 
 # Fit and Explore the Models Without Outliers
@@ -588,6 +643,9 @@ summary_table_without_outliers <- data.frame(
 write.csv(summary_table_without_outliers, file = "Results/summary_table_without_outliers.csv", row.names = FALSE)
 
 print(summary_table_without_outliers)
+
+# write on the chunk end time file
+log_chunk_end_time("Fit and Explore the Models Without Outliers", log_file = "chunk_times_log.txt")
 ```
 
 
@@ -651,5 +709,5 @@ print(summary_table_without_outliers)
 # Snaphot the packages installed
 
 ```{r Snapshot_packages, results = 'hide', message=FALSE, warning=FALSE}
-renv::snapshot()
+#renv::snapshot()
 ```

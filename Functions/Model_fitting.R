@@ -86,11 +86,11 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
       
       # Run univariate Cox regression for each variable
       significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
-
+      
       # reduce the genes expression data frame to only the colunmns of interest
       genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
       print(ncol(genes_expression_train))
-      
+      cat("here 4")
       # Define survival object
       survival_object <- Surv(time = survival_train$days, event = survival_train$vital_status)
       
@@ -122,7 +122,7 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
       # Construct a risk score based on the linear predictor on the test data
       survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = CoxCoefficients$ensembl_gene_id), type = "lp")
       
-      
+    
       
       # Store c-index value for the current seed, explicação: https://www.youtube.com/watch?v=rRYfWAsG4RI
       c_index_values[j] <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test, reverse=TRUE)$concordance
@@ -189,7 +189,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
                  #type.measure='deviance', #For penalty='SCAD' and penalty='MCP', only type.measure='deviance' is available
                  iter = FALSE, #Specifies whether to perform iterative SIS.
                  nsis = 100,
-                 seed = 1000) # 10GBM <- protein coding | 1000LGG <- protein and long non
+                 seed = 1000) 
   
   
   # Extract coefficients from the fitted model
@@ -206,7 +206,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
                                             #type.measure='deviance', #For penalty='SCAD' and penalty='MCP', only type.measure='deviance' is available
                                             iter = TRUE, #Specifies whether to perform iterative SIS.
                                             nsis = 25,
-                                            seed = 100, # 10GBM <- protein coding, 100GBM <- long non|| 1000LGG <- protein and long non
+                                            seed = 100, 
                                             varISIS='cons') #Specifies whether to perform any of the two ISIS variants based on randomly splitting the sample into two groups
   
   }))
