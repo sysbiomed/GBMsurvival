@@ -1,3 +1,10 @@
-Chunk 'Prepare the environment, report chunk status and sessioninfo' finished at: 2024-09-17 14:59:08
-Chunk 'Download functions' finished at: 2024-09-17 14:59:08
-Chunk 'Folder to store results' finished at: 2024-09-17 14:59:09
+Chunk 'Prepare the environment, report chunk status and sessioninfo' finished at: 2024-09-25 15:40:30
+Chunk 'Download functions' finished at: 2024-09-25 15:40:30
+Chunk 'Folder to store results' finished at: 2024-09-25 15:40:30
+Chunk 'Download data' finished at: 2024-09-25 15:43:57
+Chunk 'Prepare survival data' finished at: 2024-09-25 15:43:57
+Chunk 'Assign a new classification to the data' finished at: 2024-09-25 15:43:58
+Chunk 'Select and prepare expression data' finished at: 2024-09-25 15:44:00
+Chunk 'Disease selection and data normalization' finished at: 2024-09-25 15:44:07
+Chunk 'Analyse the best model' finished at: 2024-09-26 08:56:31
+Chunk 'Analyse the best model' finished at: 2024-09-26 09:19:04

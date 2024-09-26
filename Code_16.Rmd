@@ -196,30 +196,36 @@ survival_data <- orderDataByPatient(survival_data)
 log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
 
-# Find the best alpha for Regularized Cox Regression model glmnet
+<!-- # Find the best alpha for Regularized Cox Regression model glmnet -->
 
-```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE}
+<!-- ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE} -->
 
-# indicate the alpha values to test
-#alpha_vector <- c(0.1)
-alpha_vector <- seq(0.1, 1, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow
+<!-- # indicate the alpha values to test -->
+<!-- #alpha_vector <- c(0.1) -->
+<!-- alpha_vector <- seq(0, 0.5, by = 0.1) # if alpha is set to zero (ridge regression), the coxph model will give the Error: protect(): protection stack overflow -->
 
-# List of seed values
-#seed_values_alpha <- c(1)
-seed_values_alpha <- seq(1, 10, by = 1)
+<!-- # List of seed values -->
+<!-- #seed_values_alpha <- c(1) -->
+<!-- seed_values_alpha <- seq(1, 10, by = 1) -->
 
-# evaluate the alpha values through multiple seeds
-results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values_alpha, genes_expression, survival_data)
+<!-- # evaluate the alpha values through multiple seeds -->
+<!-- results_df <- find_best_alpha_for_glmnet(alpha_vector, seed_values_alpha, genes_expression, survival_data) -->
 
-# select the best alpha
-best_alpha <- results_df$Alpha[which.max(results_df$Average_C_Index)]
+<!-- # select the best alpha -->
+<!-- best_alpha <- results_df$Alpha[which.max(results_df$Average_C_Index)] -->
 
-results_df
-cat("Best alpha: ", "\n", best_alpha, "\n")
+<!-- results_df -->
+<!-- cat("Best alpha: ", "\n", best_alpha, "\n") -->
 
-# write on the chunk end time file
-log_chunk_end_time("Find the best alpha for Regularized Cox Regression model glmnet", log_file = "chunk_times_log.txt")
-```
+
+<!-- # Save as CSV -->
+<!-- list_columns <- sapply(results_df, is.list) # Identify list columns -->
+<!-- results_df[list_columns] <- lapply(results_df[list_columns], as.character) # Convert list columns to character -->
+<!-- write.csv(results_df, file = "Results/results_df.csv", row.names = FALSE) -->
+
+<!-- # write on the chunk end time file -->
+<!-- log_chunk_end_time("Find the best alpha for Regularized Cox Regression model glmnet", log_file = "chunk_times_log.txt") -->
+<!-- ``` -->
 
 # Fit and Explore the Models
 
@@ -228,8 +234,9 @@ log_chunk_end_time("Find the best alpha for Regularized Cox Regression model glm
 # Models' names
 models_names_list <- c("GLMNET", "SIS", "ISIS", "RandomForest+GLMNET", "CausalForest+GLMNET", "Boruta+GLMNET")
 
+best_alpha <- 1
 
-# Define the seeds for 3 iterations
+# Define the seeds for the iterations
 #seeds <- c(1)
 seeds <- seq(1, 10, by = 1)
 
@@ -283,7 +290,7 @@ for (i in seq_along(seeds)) {
     if (num_coeff_df[j, i] > 0) {
       
       c_index_df[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test, survival_data)
-      
+      cat("seed: ", seeds[i], "\n", "c_index: ", c_index_df[j, i], "\n")
       num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
     } else {
       
@@ -303,7 +310,7 @@ summary_table <- data.frame(
 )
 
 #Save a summary table as a CSV file
-write.csv(summary_table, file = "Results/summary_table.csv", row.names = FALSE)
+write.csv(summary_table, file = "Results/summary_table.csv", row.names = TRUE)
 
 print(summary_table)
 
@@ -321,16 +328,16 @@ best_model_name <- rownames(c_index_df)[best_model_index]
 cat("Best model:", best_model_name, "\n")
 
 # Get the coefficients of the best model
-best_model_coefficients <- models_coefficients_list[[1]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
+best_model_coefficients <- models_coefficients_list[[8]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
-# Get information on the coefficients of the best model    
+# Get information on the coefficients of the best model
 gene_info_result <- getGenesInfo(best_model_coefficients)
 print(gene_info_result)
 
 # Split the data
-set.seed(1)
+set.seed(8)
 splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
-  
+
 genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
 genes_expression_test <- splited$expression_test
@@ -347,8 +354,8 @@ print(ncol(genes_expression_train))
 survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
 
 # Fit a Cox regression model using the covariates
-fit <- coxph(survival_object_train ~ ., 
-             data = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), # specify coefficients 
+fit <- coxph(survival_object_train ~ .,
+             data = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), # specify coefficients
              init = as.numeric(best_model_coefficients$Coef_value), # specify coefficient values
              iter.max = 0) # force the software to keep those values
 
@@ -379,8 +386,8 @@ fit_surv <- survfit(Surv(survival_test$days, survival_test$vital_status) ~ risk)
 survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk)
 
 survdiff_output <- capture.output(survdiff(Surv(survival_test$days, survival_test$vital_status) ~ risk))
-plot <- ggsurvplot(fit_surv, 
-                   data = survival_test, 
+plot <- ggsurvplot(fit_surv,
+                   data = survival_test,
                    title = "Kaplan-Meier Curves by Risk Status",
                    xlab = "Time (days)",
                    legend.title = "Group")
@@ -391,7 +398,7 @@ plot$plot
 
 #---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
 # The cumulative sensitivity considers those who have died by time t
-# The dynamic specificity regards those who are still alive at time t 
+# The dynamic specificity regards those who are still alive at time t
 # This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period.
 Cumulative_ROC <- CumulativeCaseDynamicControlROC(survival_test, survival_probabilities_test, "Cumulative case/ Dynamic control ROC")
 Cumulative_ROC
@@ -403,7 +410,9 @@ Cumulative_ROC
 Incident_ROC <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC")
 Incident_ROC
 
+
 #Risk AUC based on Incident case/dynamic control
+pdf("Results/riskAUC.pdf", width = 6, height = 4) # to save the plot below
 riskAUC = risksetAUC(Stime=survival_test$days/365.25,
                      status = survival_test$vital_status,
                      marker = survival_probabilities_test,
@@ -411,8 +420,9 @@ riskAUC = risksetAUC(Stime=survival_test$days/365.25,
                      tmax = ceiling(max(survival_test$days))/365.25,
                      type = "b",
                      plot = TRUE,
-                     xlab = "Time (years)") 
+                     xlab = "Time (years)")
 title(main= "AUC based on Incident case/dynamic control")
+dev.off() # to save the plot above
 
 # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
 cat("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex, "\n")
@@ -430,6 +440,7 @@ writeLines(survdiff_output, "Results/survdiff_output.txt")
 ggsave(filename = "Results/plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4)
 ggsave(filename = "Results/Cumulative_ROC.pdf", plot = Cumulative_ROC, width = 6, height = 4)
 ggsave(filename = "Results/Incident_ROC.pdf", plot = Incident_ROC, width = 6, height = 4)
+ggsave(filename = "Results/riskAUC.pdf", plot = riskAUC$plot, width = 6, height = 4)
 ggsave(filename = "Results/distribution_of_risk_predictor.pdf", plot = plot_distribution, width = 6, height = 4)
 
 # Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
@@ -486,6 +497,9 @@ log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt")
 # Indentify oultiers with the rank product test
 
 ```{r Indentify_oultiers_with_the_rank_product_test, message=FALSE, warning=FALSE}
+#old <- models_coefficients_list
+#models_coefficients_list <- old
+#models_coefficients_list <- list(models_coefficients_list[[1]][1])
 
 # Calculate martingale residuals for each model
 martingale_residuals_matrix <- calculate_martingale_residuals(models_coefficients_list, genes_expression, survival_data)
@@ -498,15 +512,15 @@ rho = rank_product_results #rank product matrix result
 n <-dim(survival_data)[1] # number of samples
 k <-sum(sapply(unlist(models_coefficients_list, recursive = FALSE), function(df) nrow(df) > 0)) # number of models with coefficients different than zero
 
-pvalues <- as.vector(rankprodbounds(rho,n,k,Delta ='geometric')) # The p-values are obtained by the following, where Delta option is the geometric mean.
+pvalues <- as.vector(rankprodbounds(rho,n,k,Delta ='upper')) # The p-values are obtained by the following, where Delta option is the geometric mean.
 
 # Ensure all p-values are within the [0, 1] range: Even though the values should be in this range, sometimes very small floating-point errors can cause issues
-pvalues <- pmin(pmax(pvalues, 0), 1)
+#pvalues <- pmin(pmax(pvalues, 0), 1)
 
 # q-values calculation
-qobj<-qvalue(pvalues)
-qvalues<-qobj$qvalues
-outliers_rank_product <- which(qvalues<0.001) # Tightened the significance threshold to q-values < 0.001, instead of 0.05, to focus on the most significant outliers, reducing the number of outliers for more robust model evaluation.
+qvalues <- p.adjust(pvalues, method = "BH")
+
+outliers_rank_product <- which(qvalues<0.05) # Tightened the significance threshold to q-values < 0.001, instead of 0.05, to focus on the most significant outliers, reducing the number of outliers for more robust model evaluation.
 
 # Remove the rows corresponding to outliers 
 genes_expression_without_outliers <- genes_expression[-outliers_rank_product, ]
@@ -589,16 +603,16 @@ rownames(num_coeff_df_without_outliers) <- models_names_list
 # Loop through the seeds and run the analysis
 for (i in seq_along(seeds)) {
   cat("Running analysis for seed:", seeds[i], "\n")
-  
+
   # Split the data
   set.seed(i)
   splited <- splitTestAndTrain(genes_expression_without_outliers, survival_data_without_outliers, 0.7)
-  
+
   genes_expression_train <- splited$expression_train
   survival_train <- splited$survival_train
   genes_expression_test <- splited$expression_test
   survival_test <- splited$survival_test
-  
+
   # Run univariate Cox regression for each variable
   significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
 
@@ -608,23 +622,23 @@ for (i in seq_along(seeds)) {
 
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
-  
+
   # Fit models
   models_coefficients_list_without_outliers[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
-  
+
   # Calculate and store C-index for each model
-  
+
   for (j in seq_along(models_coefficients_list_without_outliers[[i]])) {
-    
+
     num_coeff_df_without_outliers[j, i] <- length(models_coefficients_list_without_outliers[[i]][[j]]$ensembl_gene_id)
-    
+
     if (num_coeff_df_without_outliers[j, i] > 0) {
-      
+
       c_index_df_without_outliers[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list_without_outliers[[i]][[j]], genes_expression_test, survival_test, survival_data)
-      
+
       num_coeff_df_without_outliers[j, i] <- length(models_coefficients_list_without_outliers[[i]][[j]]$ensembl_gene_id)
     } else {
-      # If the model has empty coefficients, set C-index to NA 
+      # If the model has empty coefficients, set C-index to NA
       c_index_df_without_outliers[j, i] <- NA
            }
     }
@@ -640,7 +654,7 @@ summary_table_without_outliers <- data.frame(
 )
 
 # Save a summary table as a CSV file
-write.csv(summary_table_without_outliers, file = "Results/summary_table_without_outliers.csv", row.names = FALSE)
+write.csv(summary_table_without_outliers, file = "Results/summary_table_without_outliers.csv", row.names = TRUE)
 
 print(summary_table_without_outliers)
 
@@ -649,35 +663,35 @@ log_chunk_end_time("Fit and Explore the Models Without Outliers", log_file = "ch
 ```
 
 
-<!-- # Analyse the balance of censored data in test and training -->
+# Analyse the balance of censored data in test and training
 
-<!-- ```{r Analyse_the_balance_of_censored_data_in_test_and_training} -->
+```{r Analyse_the_balance_of_censored_data_in_test_and_training}
 
-<!-- counts_test <- table(survival_test$vital_status) -->
+counts_test <- table(survival_test$vital_status)
 
-<!-- # Calculate the percentage of zeros and ones -->
-<!-- test_percent_zeros <- round((counts_test[1] / sum(counts_test)) * 100, 2) -->
-<!-- test_percent_ones <- round((counts_test[2] / sum(counts_test)) * 100, 2) -->
+# Calculate the percentage of zeros and ones
+test_percent_zeros <- round((counts_test[1] / sum(counts_test)) * 100, 2)
+test_percent_ones <- round((counts_test[2] / sum(counts_test)) * 100, 2)
 
-<!-- counts_train <- table(survival_train$vital_status) -->
+counts_train <- table(survival_train$vital_status)
 
-<!-- # Calculate the percentage of zeros and ones -->
-<!-- train_percent_zeros <- round((counts_train[1] / sum(counts_train)) * 100, 2) -->
-<!-- train_percent_ones <- round((counts_train[2] / sum(counts_train)) * 100, 2) -->
+# Calculate the percentage of zeros and ones
+train_percent_zeros <- round((counts_train[1] / sum(counts_train)) * 100, 2)
+train_percent_ones <- round((counts_train[2] / sum(counts_train)) * 100, 2)
 
-<!-- # Create a dataframe to store the comparison -->
-<!-- comparison_test_train_data <- data.frame( -->
-<!--   Dataframe = c("survival_test", "survival_train"), -->
-<!--   Alive = c(test_percent_zeros, train_percent_zeros), -->
-<!--   Dead = c(test_percent_ones, train_percent_ones) -->
-<!-- ) -->
+# Create a dataframe to store the comparison
+comparison_test_train_data <- data.frame(
+  Dataframe = c("survival_test", "survival_train"),
+  Alive = c(test_percent_zeros, train_percent_zeros),
+  Dead = c(test_percent_ones, train_percent_ones)
+)
 
-<!-- comparison_test_train_data -->
+comparison_test_train_data
 
-<!-- # Save the table as a CSV file in the "Results" directory -->
-<!-- write.csv(comparison_test_train_data, file = "Results/comparison_test_train_data.csv", row.names = FALSE) -->
+# Save the table as a CSV file in the "Results" directory
+write.csv(comparison_test_train_data, file = "Results/comparison_test_train_data.csv", row.names = FALSE)
 
-<!-- ``` -->
+```
 
 <!-- # Test the best model on the train data -->
 
