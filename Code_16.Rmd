@@ -25,8 +25,7 @@ load_libraries <- function(...) {
   lapply(libs, require, character.only = TRUE)
 }
 
-invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "randomForestSRC", "grf", "Boruta", "timeROC", "qvalue", "clusterProfiler", "org.Hs.eg.db", "enrichplot", "pathview"))
-
+invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "randomForestSRC", "grf", "Boruta", "timeROC", "qvalue", "clusterProfiler", "org.Hs.eg.db", "enrichplot", "pathview", "UpSetR"))
 ```
 
 # Prepare the environment, report chunk status and sessioninfo
@@ -235,10 +234,11 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 models_names_list <- c("GLMNET", "SIS", "ISIS", "RandomForest+GLMNET", "CausalForest+GLMNET", "Boruta+GLMNET")
 
 best_alpha <- 1
+n_seeds <- 10
 
 # Define the seeds for the iterations
 #seeds <- c(1)
-seeds <- seq(1, 10, by = 1)
+seeds <- seq(1, n_seeds, by = 1)
 
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list <- list()
@@ -269,7 +269,7 @@ for (i in seq_along(seeds)) {
   survival_test <- splited$survival_test
   
   # Run univariate Cox regression for each variable
-  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #old 0.05
 
   # reduce the genes expression data frame to only the colunmns of interest
   genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
@@ -344,7 +344,7 @@ genes_expression_test <- splited$expression_test
 survival_test <- splited$survival_test
 
 # Run univariate Cox regression for each variable
-significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #0.05
 
 # reduce the genes expression data frame to only the colunmns of interest
 genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
@@ -390,7 +390,8 @@ plot <- ggsurvplot(fit_surv,
                    data = survival_test,
                    title = "Kaplan-Meier Curves by Risk Status",
                    xlab = "Time (days)",
-                   legend.title = "Group")
+                   legend.title = "Group",
+                   pval = TRUE)
 plot$plot
 
 
@@ -427,6 +428,34 @@ dev.off() # to save the plot above
 # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
 cat("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex, "\n")
 
+#---------------------------- UpSet plot
+
+# Do an UpSet plot its like a veen diagram but for higher ammount of groups
+genes_list <- list()
+for (i in 1:n_seeds) {
+  genes_list[[paste0("Seed: ", i)]] <- models_coefficients_list[[i]][[best_model_index]]$ensembl_gene_id
+}
+
+# Create an UpSet plot
+upset_plot <- upset(fromList(genes_list),nsets = n_seeds, order.by = "degree")
+
+# save the plot
+pdf("Results/upset_plot.pdf", width = 6, height = 5, onefile=FALSE) # Create a PDF file to save the plot
+upset_plot
+# Add a white rectangle behind the title
+grid.rect(x = 0.5, y = 0.95, width = 0.8, height = 0.1, gp = gpar(fill = "white", col = NA))
+# Add a title using grid.text()
+grid.text("Genes Selected Across 10 Different Seeds", x = 0.5, y = 0.95, gp = gpar(fontsize = 16, fontface = "bold", fill = "white"))
+dev.off() # to save the plot above
+
+#---------------------------- Make a table with the genes that are in more than 1 seed
+
+df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
+print(df_genes_in_multiple_seeds) # Display the data frame
+
+
+
+
 # Save a predictors genes and coefficients as a CSV file
 write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
 
@@ -436,6 +465,14 @@ write.csv(gene_info_result, file = "Results/predictors_genes_and_coefficients", 
 # Write the captured output to a file
 writeLines(survdiff_output, "Results/survdiff_output.txt")
 
+# Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
+write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControlROC", row.names = FALSE)
+
+
+# Save the table with the genes that are in more than 1 seed
+write.csv(df_genes_in_multiple_seeds, file = "Results/df_genes_in_multiple_seeds", row.names = FALSE)
+
+
 # Save plots
 ggsave(filename = "Results/plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4)
 ggsave(filename = "Results/Cumulative_ROC.pdf", plot = Cumulative_ROC, width = 6, height = 4)
@@ -443,8 +480,6 @@ ggsave(filename = "Results/Incident_ROC.pdf", plot = Incident_ROC, width = 6, he
 ggsave(filename = "Results/riskAUC.pdf", plot = riskAUC$plot, width = 6, height = 4)
 ggsave(filename = "Results/distribution_of_risk_predictor.pdf", plot = plot_distribution, width = 6, height = 4)
 
-# Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
-write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControlROC", row.names = FALSE)
 
 # write on the chunk end time file
 log_chunk_end_time("Analyse the best model", log_file = "chunk_times_log.txt")
@@ -545,8 +580,8 @@ km_before_after <- ggsurvplot(fit_km_before_after,
                               xlab = "Time (days)",
                               ylab = "Survival Probability",
                               legend.title = "Group",
-                              risk.table = TRUE
-                              )
+                              risk.table = TRUE,
+                              pval = TRUE)
 
 km_before_after$plot
 
@@ -708,7 +743,7 @@ write.csv(comparison_test_train_data, file = "Results/comparison_test_train_data
 <!-- survdiff(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups) -->
 <!-- survdiff_output_train_data <- capture.output(survdiff(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups)) -->
 
-<!-- plot_train_data <- ggsurvplot(fit_surv, data = survival_train, title = "Kaplan-Meier Curves by Risk Status (train data)", legend.title = "Group") -->
+<!-- plot_train_data <- ggsurvplot(fit_surv, data = survival_train, title = "Kaplan-Meier Curves by Risk Status (train data)", legend.title = "Group", pval = TRUE) -->
 <!-- plot_train_data$plot -->
 
 

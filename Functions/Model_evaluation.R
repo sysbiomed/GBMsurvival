@@ -57,7 +57,7 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
                 predict.time = t,
                 method       = "NNE",
                 span = 0.25 * sum(survival_data$vital_status)^(-0.20))
-  }
+  } 
   ## Evaluate every X days
   survivalROC_data <- data_frame(t = c(1,2,3,4,5,6)) %>%
     mutate(survivalROC = map(t, survivalROC_helper),
@@ -65,7 +65,7 @@ CumulativeCaseDynamicControlROC <- function(survival_data, survival_probabilitie
            auc = map_dbl(survivalROC, magrittr::extract2, "AUC"),
            ## Put cut off dependent values in a data_frame
            df_survivalROC = map(survivalROC, function(obj) {
-             as_data_frame(obj[c("cut.values","TP","FP")])
+             as_tibble(obj[c("cut.values","TP","FP")])
            })) %>%
     dplyr::select(-survivalROC) %>%
     unnest() %>%
@@ -123,7 +123,7 @@ IncidentCaseDynamicControlROC <- function(survival_data, survival_probabilities,
              ## marker column is too short!
              marker <- c(-Inf, obj[["marker"]], Inf)
              bind_cols(data_frame(marker = marker),
-                       as_data_frame(obj[c("TP","FP")]))
+                       as_tibble(obj[c("TP","FP")]))
            })) %>%
     dplyr::select(-risksetROC) %>%
     unnest() %>%
@@ -197,3 +197,44 @@ calculate_rank_product <- function(data_matrix) {
   
   return(rank_product)
 }
+
+# Make a df with the genes that are selected in more than one seed
+
+get_gene_counts_with_names <- function(genes_list) {
+  # Flatten the list of all genes and count their occurrences
+  all_genes <- unlist(genes_list)
+  gene_counts <- table(all_genes)
+  
+  # Filter genes that appear in more than one seed
+  genes_in_multiple_seeds <- names(gene_counts[gene_counts > 1])
+  counts_in_multiple_seeds <- as.numeric(gene_counts[gene_counts > 1])
+  
+  # Create a data frame to display the genes and their counts
+  df_genes_in_multiple_seeds <- data.frame(Gene = genes_in_multiple_seeds, Count = counts_in_multiple_seeds)
+  
+  # Initialize the connection to the Ensembl database
+  ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+  
+  # List of Ensembl gene IDs (remove the version numbers)
+  gene_ids <- gsub("\\..*", "", df_genes_in_multiple_seeds$Gene)
+  
+  # Get information about the genes
+  gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                     filters = "ensembl_gene_id",
+                     values = gene_ids,
+                     mart = ensembl)
+  
+  # Merge the original data frame with gene symbols
+  df_genes_in_multiple_seeds$Gene_Name <- gene_info$external_gene_name[match(gene_ids, gene_info$ensembl_gene_id)]
+  
+  # Order the data frame by the 'Count' column in descending order
+  df_genes_in_multiple_seeds <- df_genes_in_multiple_seeds[order(-df_genes_in_multiple_seeds$Count), ]
+  
+  # Select only the columns to "Gene_Name" and "Count"
+  df_genes_in_multiple_seeds <- df_genes_in_multiple_seeds[, c("Gene_Name", "Count")]
+  
+  # Return the resulting data frame
+  return(df_genes_in_multiple_seeds)
+}
+
+
