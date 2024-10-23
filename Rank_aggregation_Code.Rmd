@@ -1,0 +1,571 @@
+---
+title: "Kemeny-Young Rank Aggregation for Outlier Detection"
+author: "Beatriz Leitão and Susana Vinga"
+date: "September, 2024"
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+---
+
+# Install packages
+
+```{r Install_packages, results = 'hide', message=FALSE, warning=FALSE}
+#renv::restore()
+```
+
+# Load libraries
+
+```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
+
+load_libraries <- function(...) {
+  libs <- list(...)
+  lapply(libs, require, character.only = TRUE)
+}
+
+invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "randomForestSRC", "grf", "Boruta", "timeROC", "qvalue", "clusterProfiler", "org.Hs.eg.db", "enrichplot", "pathview", "UpSetR"))
+```
+
+# Prepare the environment, report chunk status and sessioninfo
+
+```{r Prepare_the_environment_report_chunk_status_and_sessioninfo}
+
+# clean current environment
+rm(list = ls())
+
+# Capture the sessionInfo() output and write it to a file
+writeLines(capture.output(sessionInfo()), con = "sessioninfo.txt")
+
+# Delete the file if it exists 
+if (file.exists("chunk_times_log.txt")) {
+  file.remove("chunk_times_log.txt")
+}
+
+
+log_chunk_end_time <- function(chunk_label, log_file = "chunk_times_log.txt") {
+  # Get the current time
+  time_stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  
+  # Create the log message
+  log_message <- paste0("Chunk '", chunk_label, "' finished at: ", time_stamp, "\n")
+  
+  # Print the log message to console (optional)
+  cat(log_message)
+  
+  # Append the log message to the file
+  cat(log_message, file = log_file, append = TRUE)
+}
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo", log_file = "chunk_times_log.txt")
+```
+
+# Download functions
+
+```{r Download_functions}
+
+# download the functions
+source("Functions/Data_preparation.R")
+source("Functions/Model_evaluation.R")
+source("Functions/Model_fitting_RANK_VERSION.R")
+source("Functions/Rank_product_test.R")
+
+# write on the chunk end time file
+log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
+```
+
+# Folder to store results
+
+```{r Folder_to_store_results}
+
+# Ensure the 'Results' directory exists
+if (!dir.exists("Results")) {
+  dir.create("Results")
+}
+
+# write on the chunk end time file
+log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
+```
+
+# Download data
+
+```{r Download_data, results = 'hide', message=FALSE, warning=FALSE}
+
+query_RNA <- GDCquery(
+  project = c("TCGA-GBM", "TCGA-LGG"),
+  data.category = "Transcriptome Profiling",
+  data.type = "Gene Expression Quantification",
+  workflow.type = "STAR - Counts",
+  experimental.strategy = ("RNA-Seq")
+)
+# Check if files exist before downloading
+if (!dir.exists("GDCdata")) {
+  GDCdownload(query = query_RNA)
+}
+
+TCGA_RNA <- GDCprepare(query = query_RNA)
+
+# write on the chunk end time file
+log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
+```
+
+# Prepare survival data
+
+```{r Prepare_survival_data}
+# Extract survival data of interest
+columns_to_extract <- c("patient", "project_id", "vital_status", "days_to_death", "days_to_last_follow_up")
+survival_data <- createSurvivalDataFrame(columns_to_extract, TCGA_RNA)
+
+
+# Clean and prepare survival data
+survival_data <- cleanSurvivalData(survival_data)
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare survival data", log_file = "chunk_times_log.txt")
+```
+
+# Assign a new classification to the data
+
+```{r Assign_new_classification_to_the_data, results = 'hide', message=FALSE, warning=FALSE}
+# new classification -->
+new_classification <- read_csv("SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv") #download the classification datafram
+names(new_classification)[names(new_classification) == "Patient_ID"] <- "patient" # remane the Patient_ID column
+new_classification <- subset(new_classification, select = -c(TCGA.histological.type, classification.2016)) # delete unnecessary columns
+
+# Merge the dataframes to add the disease information keeping only common patients
+survival_data <- merge(survival_data, new_classification, by = "patient")
+survival_data <- subset(survival_data, select = -project_id) # remove old classification
+names(survival_data)[names(survival_data) == "classification.2021"] <- "project_id" # aplly the old name to the new classification
+
+
+# write on the chunk end time file
+log_chunk_end_time("Assign a new classification to the data", log_file = "chunk_times_log.txt")
+```
+
+# Select and prepare expression data
+
+```{r Select_and_prepare_expression_data}
+# Extrair dataframe com a expressão dos genes de interesse
+genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded", TCGA_RNA, survival_data)
+#genes_expression <- createGeneExpressionDataframe("lncRNA", "unstranded", TCGA_RNA, survival_data)
+#genes_expression <- createGeneExpressionDataframe("miRNA", "unstranded", TCGA_RNA, survival_data)       #<------------ indicar os dados 
+
+# Clean the gene expression dataframe
+genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# write on the chunk end time file
+log_chunk_end_time("Select and prepare expression data", log_file = "chunk_times_log.txt")
+```
+
+# Disease selection and data normalization
+
+```{r Disease_selection_and_data_normalization}
+
+#------------ OLD CLASSIFICATION-------------------------------------------------
+
+# selecionar apenas os dados da doença de interesse
+#data <- selectDataPerDisease("TCGA-GBM", genes_expression, survival_data)
+#data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   
+
+#------------ NEW CLASSIFICATION-------------------------------------------------
+
+#data <- selectDataPerDisease("astrocytoma", genes_expression, survival_data)
+data <- selectDataPerDisease("glioblastoma", genes_expression, survival_data)
+#data <- selectDataPerDisease("oligodendroglioma", genes_expression, survival_data)
+
+genes_expression <- data$genes_expression
+survival_data <- data$survival_data
+
+# remove genes where the sum of the gene expression is 0 (necessary to repeat this step, since there is a selection of patients) 
+genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# EdgeR+voom normalization
+genes_expression <- normalizationEdgeR(genes_expression)
+
+# Clean the gene expression dataframe
+genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# ordenar os dados por paciente
+genes_expression <- orderDataByPatient(genes_expression)
+survival_data <- orderDataByPatient(survival_data)
+
+# write on the chunk end time file
+log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
+```
+
+# Fit and Explore the Models
+
+```{r Fit_and_Explore_the_Models, message=FALSE, warning=FALSE}
+
+# Models' names
+models_names_list <- c("GLMNET", "SIS", "ISIS", "RandomForest+GLMNET", "CausalForest+GLMNET", "Boruta+GLMNET")
+
+best_alpha <- 1
+n_seeds <- 10
+
+# Define the seeds for the iterations
+#seeds <- c(1)
+seeds <- seq(1, n_seeds, by = 1)
+
+# Initialize a list to store the coefficients for each iteration
+models_coefficients_list <- list()
+
+# Create an empty dataframe to store C-index values
+num_models <- length(models_names_list) # Assuming each iteration has the same number of models
+c_index_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
+colnames(c_index_df) <- paste0("Seed_", seeds)
+rownames(c_index_df) <- models_names_list
+
+# Create an empty dataframe to store the number of coefficients
+num_coeff_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
+colnames(num_coeff_df) <- paste0("Seed_", seeds)
+rownames(num_coeff_df) <- models_names_list
+
+
+# Loop through the seeds and run the analysis
+for (i in seq_along(seeds)) {
+  cat("Running analysis for seed:", seeds[i], "\n")
+
+  set.seed(i)
+  # Split the data
+  splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
+  
+  genes_expression_train <- splited$expression_train
+  survival_train <- splited$survival_train
+  genes_expression_test <- splited$expression_test
+  survival_test <- splited$survival_test
+  
+  # Run univariate Cox regression for each variable
+  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #old 0.05
+
+  # reduce the genes expression data frame to only the colunmns of interest
+  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+  print(ncol(genes_expression_train))
+  
+  # Define survival object
+  survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
+  
+  # Fit models
+  models_coefficients_list[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
+  
+  # Calculate and store C-index for each model
+  
+  for (j in seq_along(models_coefficients_list[[i]])) {
+    
+    num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
+    
+    if (num_coeff_df[j, i] > 0) {
+      
+      c_index_df[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test, survival_data)
+      cat("seed: ", seeds[i], "\n", "c_index: ", c_index_df[j, i], "\n")
+      num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
+    } else {
+      
+      # If the model has empty coefficients, set C-index to NA 
+      c_index_df[j, i] <- NA
+           }
+    }
+}
+
+# Create a summary table
+summary_table <- data.frame(
+  C_Index_Avg = round(apply(c_index_df, 1, mean, na.rm = TRUE), 3),
+  C_Index_Std_Dev = round(apply(c_index_df, 1, sd, na.rm = TRUE), 3),
+  Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
+  Coeff_Num_Std_Dev = round(apply(num_coeff_df, 1, sd), 1),
+  Non_Convergence_Perc = apply(num_coeff_df, 1, function(x) mean(x == 0) * 100)
+)
+
+#Save a summary table as a CSV file
+write.csv(summary_table, file = "Results/summary_table.csv", row.names = TRUE)
+
+print(summary_table)
+
+# write on the chunk end time file
+log_chunk_end_time("Fit and Explore the Models", log_file = "chunk_times_log.txt")
+```
+
+<!-- # Rank product test -->
+
+<!-- ```{r Rank_product_test, message=FALSE, warning=FALSE} -->
+
+<!-- # Calculate martingale residuals for each model -->
+<!-- martingale_residuals_matrix <- calculate_martingale_residuals(models_coefficients_list, genes_expression, survival_data) -->
+
+<!-- rank_product_results <- calculate_rank_product(martingale_residuals_matrix) -->
+
+<!-- # p-values calculation -->
+
+<!-- rho = rank_product_results #rank product matrix result -->
+<!-- n <-dim(survival_data)[1] # number of samples -->
+<!-- k <-sum(sapply(unlist(models_coefficients_list, recursive = FALSE), function(df) nrow(df) > 0)) # number of models with coefficients different than zero -->
+
+<!-- pvalues <- as.vector(rankprodbounds(rho,n,k,Delta ='upper')) # The p-values are obtained by the following, where Delta option is the geometric mean. -->
+
+<!-- # Ensure all p-values are within the [0, 1] range: Even though the values should be in this range, sometimes very small floating-point errors can cause issues -->
+<!-- #pvalues <- pmin(pmax(pvalues, 0), 1) -->
+
+<!-- # q-values calculation -->
+<!-- qvalues <- p.adjust(pvalues, method = "BH") -->
+
+<!-- outliers_rank_product <- which(qvalues<0.05) # Tightened the significance threshold to q-values < 0.001, instead of 0.05, to focus on the most significant outliers, reducing the number of outliers for more robust model evaluation. -->
+
+<!-- # Remove the rows corresponding to outliers  -->
+<!-- genes_expression_without_outliers <- genes_expression[-outliers_rank_product, ] -->
+<!-- survival_data_without_outliers <- survival_data[-outliers_rank_product, ] -->
+
+<!-- ## Kaplan-Meier Curves for Both Before and After Outlier Removal -->
+
+<!-- # Combine the datasets and create the grouping variable -->
+<!-- combined_survival_data <- rbind( -->
+<!--   data.frame(survival_data, group = "With Outliers"), -->
+<!--   data.frame(survival_data_without_outliers, group = "Without Outliers") -->
+<!-- ) -->
+
+<!-- # Fit Kaplan-Meier survival model using the combined dataset -->
+<!-- fit_km_before_after <- survfit(Surv(days, vital_status) ~ group, data = combined_survival_data) -->
+<!-- survdiff(Surv(days, vital_status) ~ group, data = combined_survival_data) -->
+
+<!-- # Create a combined Kaplan-Meier plot with both before and after curves -->
+<!-- km_before_after <- ggsurvplot(fit_km_before_after, -->
+<!--                               data = combined_survival_data, -->
+<!--                               title = "Kaplan-Meier Curves Pre and Post Outlier Removal", -->
+<!--                               xlab = "Time (days)", -->
+<!--                               ylab = "Survival Probability", -->
+<!--                               legend.title = "Group", -->
+<!--                               risk.table = TRUE, -->
+<!--                               pval = TRUE) -->
+
+<!-- km_before_after$plot -->
+
+<!-- survdiff_km_before_after_output <- capture.output(survdiff(Surv(days, vital_status) ~ group, data = combined_survival_data)) -->
+
+<!-- # Create the table with the specified information -->
+<!-- outliers_table <- data.frame( -->
+<!--   Index = outliers_rank_product, -->
+<!--   Time = survival_data$days[outliers_rank_product], -->
+<!--   Status = survival_data$vital_status[outliers_rank_product], -->
+<!--   p_value = pvalues[outliers_rank_product], -->
+<!--   q_value = qvalues[outliers_rank_product] -->
+<!-- ) -->
+
+<!-- # Order the table by q-value -->
+<!-- outliers_table <- outliers_table[order(outliers_table$q_value), ] -->
+
+<!-- # Print the table to check -->
+<!-- print(outliers_table) -->
+
+
+<!-- # Write the captured output to a file -->
+<!-- writeLines(survdiff_km_before_after_output, "Results/survdiff_Before_After_Outliers_Removal.txt") -->
+
+<!-- # Save plot -->
+<!-- ggsave(filename = "Results/KM_Curve_Before_After_Outliers_Removal.pdf", plot = km_before_after$plot, width = 6, height = 4) -->
+
+<!-- # Save the table as a CSV file in the "Results" directory -->
+<!-- write.csv(outliers_table, file = "Results/outliers_table.csv", row.names = FALSE) -->
+
+<!-- # write on the chunk end time file -->
+<!-- log_chunk_end_time("Indentify oultiers with the rank product test", log_file = "chunk_times_log.txt") -->
+<!-- ``` -->
+<!-- # Alternative Rank product test -->
+
+<!-- ```{r Alternative_Rank_product_test, message=FALSE, warning=FALSE} -->
+
+<!-- # Calculate martingale residuals for each model -->
+<!-- martingale_residuals_matrix <- calculate_martingale_residuals(models_coefficients_list, genes_expression, survival_data) -->
+
+<!-- rank_product_results <- calculate_rank_product(martingale_residuals_matrix) -->
+
+<!-- # p-values calculation -->
+
+<!-- rho = rank_product_results #rank product matrix result -->
+<!-- n <-dim(survival_data)[1] # number of samples -->
+<!-- k <-sum(sapply(unlist(models_coefficients_list, recursive = FALSE), function(df) nrow(df) > 0)) # number of models with coefficients different than zero -->
+
+<!-- pvalues <- as.vector(rankprodbounds(rho,n,k,Delta ='upper')) # The p-values are obtained by the following, where Delta option is the geometric mean. -->
+
+<!-- # Ensure all p-values are within the [0, 1] range: Even though the values should be in this range, sometimes very small floating-point errors can cause issues -->
+<!-- #pvalues <- pmin(pmax(pvalues, 0), 1) -->
+
+<!-- # q-values calculation -->
+<!-- qvalues <- p.adjust(pvalues, method = "BH") -->
+
+<!-- outliers_rank_product <- which(qvalues<0.05) # Tightened the significance threshold to q-values < 0.001, instead of 0.05, to focus on the most significant outliers, reducing the number of outliers for more robust model evaluation. -->
+
+<!-- ``` -->
+
+<!-- # Kemeny-Young Rank Aggregation -->
+
+<!-- ```{r Kemeny-Young Rank Aggregation, message=FALSE, warning=FALSE} -->
+
+<!-- # Calculate martingale residuals for each model -->
+<!-- martingale_residuals_matrix <- calculate_martingale_residuals(models_coefficients_list, genes_expression, survival_data) -->
+
+<!-- # Rank the residuals (highest residual gets rank 1, lower residuals get higher ranks) -->
+<!-- rankings_of_martingale <- apply(t(martingale_residuals_matrix), 1, function(x) rank(-x)) -->
+
+<!-- rankings_of_martingale <- t(rankings_of_martingale) -->
+
+<!-- observation_ids <- 1:ncol(rankings_of_martingale) -->
+<!-- rownames(rankings_of_martingale) <- observation_ids  # Add observation IDs to rows (observations) -->
+<!-- colnames(rankings_of_martingale) <- paste0("Model_", 1:ncol(rankings_of_martingale))  # Label models -->
+
+
+<!-- # Install and load the ConsRank package if not already installed -->
+<!-- if (!require("ConsRank")) install.packages("ConsRank") -->
+<!-- library(ConsRank) -->
+
+<!-- # Apply QuickCons to find the consensus ranking across models -->
+<!-- consensus_ranking <- consrank(rankings_of_martingale, algorithm= "quick") -->
+
+<!-- # Step 5: Print the consensus ranking -->
+<!-- print("Consensus Ranking across models:") -->
+<!-- print(consensus_ranking) -->
+
+<!-- # Step 1: Extract consensus rankings -->
+<!-- consensus_ranks <- consensus_ranking$Consensus -->
+<!-- consensus_ranks <- consensus_ranking$Consensus[1, ] -->
+
+<!-- # Step 2: Combine consensus rankings with observation IDs -->
+<!-- outlier_data <- data.frame(Observation_ID = observation_ids, Consensus_Rank = consensus_ranks) -->
+
+<!-- # Step 3: Sort by Consensus Rank -->
+<!-- outlier_data_sorted <- outlier_data[order(outlier_data$Consensus_Rank), ] -->
+
+<!-- # Create the table with the specified information -->
+<!-- outliers_table_Kemeny_Young <- data.frame( -->
+<!--   Index = outlier_data_sorted$Observation_ID, -->
+<!--   Time = survival_data$days[outlier_data_sorted$Observation_ID], -->
+<!--   Status = survival_data$vital_status[outlier_data_sorted$Observation_ID]) -->
+
+<!-- ``` -->
+# Local Outlier Factor (LOF)
+
+```{r Local_Outlier_Factor_LOF, message=FALSE, warning=FALSE}
+
+# Install and load dbscan package
+if (!require("dbscan")) install.packages("dbscan")
+library(dbscan)
+
+# Calculate martingale residuals for each model
+martingale_residuals_matrix <- calculate_martingale_residuals(models_coefficients_list, genes_expression, survival_data)
+
+# Calculate LOF scores for each observation
+lof_scores <- lof(martingale_residuals_matrix, minPts = 5)
+
+# Define a threshold for LOF scores to flag outliers (typically, 1.5 or 2)
+lof_threshold <- 2
+
+# Identify outliers based on LOF scores
+outliers_lof <- which(lof_scores > lof_threshold)
+
+# Create the table with the specified information
+outliers_table_LOF <- data.frame(
+  Index = outliers_lof,
+  Time = survival_data$days[outliers_lof],
+  Status = survival_data$vital_status[outliers_lof])
+
+# Boxplot for the LOF scores
+boxplot(lof_scores,
+        main = "Boxplot of LOF Scores",
+        ylab = "LOF Score",
+        col = "lightblue")
+
+# Remove the rows corresponding to outliers 
+genes_expression_without_outliers <- genes_expression[-outliers_lof, ]
+survival_data_without_outliers <- survival_data[-outliers_lof, ]
+
+```
+
+# Fit and Explore the Models Without Outliers
+
+```{r Fit_and_Explore_the_Models_Without_Outliers, message=FALSE, warning=FALSE}
+
+# Initialize a list to store the coefficients for each iteration
+models_coefficients_list_without_outliers <- list()
+
+# Create an empty dataframe to store C-index values
+num_models <- length(models_names_list) # Assuming each iteration has the same number of models
+c_index_df_without_outliers <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
+colnames(c_index_df_without_outliers) <- paste0("Seed_", seeds)
+rownames(c_index_df_without_outliers) <- models_names_list
+
+# Create an empty dataframe to store the number of coefficients
+num_coeff_df_without_outliers <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
+colnames(num_coeff_df_without_outliers) <- paste0("Seed_", seeds)
+rownames(num_coeff_df_without_outliers) <- models_names_list
+
+
+# Loop through the seeds and run the analysis
+for (i in seq_along(seeds)) {
+  cat("Running analysis for seed:", seeds[i], "\n")
+
+  # Split the data
+  set.seed(i)
+  splited <- splitTestAndTrain(genes_expression_without_outliers, survival_data_without_outliers, 0.7)
+
+  genes_expression_train <- splited$expression_train
+  survival_train <- splited$survival_train
+  genes_expression_test <- splited$expression_test
+  survival_test <- splited$survival_test
+
+  # Run univariate Cox regression for each variable
+  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05)
+
+  # reduce the genes expression data frame to only the colunmns of interest
+  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+  print(ncol(genes_expression_train))
+
+  # Define survival object
+  survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
+
+  # Fit models
+  models_coefficients_list_without_outliers[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
+
+  # Calculate and store C-index for each model
+
+  for (j in seq_along(models_coefficients_list_without_outliers[[i]])) {
+
+    num_coeff_df_without_outliers[j, i] <- length(models_coefficients_list_without_outliers[[i]][[j]]$ensembl_gene_id)
+
+    if (num_coeff_df_without_outliers[j, i] > 0) {
+
+      c_index_df_without_outliers[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list_without_outliers[[i]][[j]], genes_expression_test, survival_test, survival_data)
+
+      num_coeff_df_without_outliers[j, i] <- length(models_coefficients_list_without_outliers[[i]][[j]]$ensembl_gene_id)
+    } else {
+      # If the model has empty coefficients, set C-index to NA
+      c_index_df_without_outliers[j, i] <- NA
+           }
+    }
+}
+
+# Create a summary table
+summary_table_without_outliers <- data.frame(
+  C_Index_Avg = round(apply(c_index_df_without_outliers, 1, mean, na.rm = TRUE), 3),
+  C_Index_Std_Dev = round(apply(c_index_df_without_outliers, 1, sd, na.rm = TRUE), 3),
+  Coeff_Num_Avg = round(apply(num_coeff_df_without_outliers, 1, mean), 1),
+  Coeff_Num_Std_Dev = round(apply(num_coeff_df_without_outliers, 1, sd), 1),
+  Non_Convergence_Perc = apply(num_coeff_df_without_outliers, 1, function(x) mean(x == 0) * 100)
+)
+
+# Save a summary table as a CSV file
+write.csv(summary_table_without_outliers, file = "Results/summary_table_without_outliers.csv", row.names = TRUE)
+
+print(summary_table_without_outliers)
+
+# write on the chunk end time file
+log_chunk_end_time("Fit and Explore the Models Without Outliers", log_file = "chunk_times_log.txt")
+```
+
+
+
+
+# Snaphot the packages installed
+
+```{r Snapshot_packages, results = 'hide', message=FALSE, warning=FALSE}
+#renv::snapshot()
+```

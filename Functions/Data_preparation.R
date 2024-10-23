@@ -144,19 +144,28 @@ splitTestAndTrain <- function(expression, survival, percentage) {
   
   merged_data <- merge(survival, expression, by = "patient")
   
-  # creating a sample diving into the ratio defined 
-  sample <- sample.split(merged_data$patient, SplitRatio = percentage)
+  # # creating a sample diving into the ratio defined 
+  # sample <- sample.split(merged_data$patient, SplitRatio = percentage)
+  # 
+  # # creating training dataset 
+  # train_data  <- subset(merged_data, sample == TRUE) 
+  # 
+  # # creating testing dataset 
+  # test_data <- subset(merged_data, sample == FALSE) 
   
-  # creating training dataset 
-  train_data  <- subset(merged_data, sample == TRUE) 
+  # survival_train <- train_data[, c('patient', 'vital_status', 'days')]
+  # survival_test <- test_data[, c('patient', 'vital_status', 'days')]
+  # expression_train <- train_data %>% dplyr::select(-vital_status, -days)
+  # expression_test <- test_data %>% dplyr::select(-vital_status, -days)
   
-  # creating testing dataset 
-  test_data <- subset(merged_data, sample == FALSE) 
+  # Use the `vital_status` as the strata variable for stratified sampling
+  split <- initial_split(merged_data, prop = percentage, strata = "vital_status")
   
-  survival_train <- train_data[, c('patient', 'vital_status', 'days')]
-  survival_test <- test_data[, c('patient', 'vital_status', 'days')]
-  expression_train <- train_data %>% dplyr::select(-vital_status, -days)
-  expression_test <- test_data %>% dplyr::select(-vital_status, -days)
+  # Extract train and test sets from the split
+  survival_train <- training(split)[, c('patient', 'vital_status', 'days')]
+  expression_train <- training(split) %>% dplyr::select(-vital_status, -days)
+  survival_test <- testing(split)[, c('patient', 'vital_status', 'days')]
+  expression_test <- testing(split) %>% dplyr::select(-vital_status, -days)
   
   result <- list(survival_train = survival_train, survival_test = survival_test,
                  expression_train = expression_train, expression_test = expression_test)
