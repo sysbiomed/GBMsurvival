@@ -18,14 +18,26 @@ univariate_cox <- function(survivaldata, expressiondata, significant_threshold) 
     set.seed(1)
     uni_cox <- coxph(survival_object ~ ., data = subset(expressiondata, select = cov))
     
-    summary_uni_cox <- summary(uni_cox)
+    #summary_uni_cox <- summary(uni_cox)
     
-    p_value <- summary_uni_cox$coefficients[5]  # p-value
+    #p_value <- summary_uni_cox$coefficients[5]  # p-value
+    
+    # Construct a risk score based on the linear predictor on the test data
+    survival_probabilities <- predict(uni_cox, newdata = subset(expressiondata, select = cov), type = "lp") 
+    
+    # Categorize individuals of the test data based on the median
+    risk <- ifelse(survival_probabilities > median(survival_probabilities), "High", "Low")
+    
+    # P-value da Kaplan-Meier com a separação por High/ Low
+    p_value <- survdiff(Surv(survivaldata$days/365.25, survivaldata$vital_status) ~ risk)$pvalue
+    
+    # Adicionar o p-value desta variável ao dataframe
     results <- rbind(results, data.frame(variable = cov, p_value = p_value))
     
-    # Extract the names of the significant variables
-    significant_variable_names <- results$variable[results$p_value < significant_threshold]
   }
+  
+  # Extract the names of the significant variables
+  significant_variable_names <- results$variable[results$p_value < significant_threshold]
   
   return(significant_variable_names)
 }
@@ -167,7 +179,7 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
 ## Fit models
 
 fit_models <- function(genes_expression_train, survival_object, best_alpha, survival_train) {
-
+  
   ############# Fit the Regularized Cox Regression GLMNET with the best alpha
   set.seed(1012)
   fit_COX <- cv.glmnet(prepareDataForCoxRegression(genes_expression_train),
@@ -230,7 +242,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   # Fit the Random Survival Forest model
   set.seed(1012)
   rsf_model <- rfsrc(Surv(days, vital_status) ~ .,
-                     data = data_randomforest)
+                     data = data_randomforest, seed = -123)
 
   # Extract feature importance from the causal forest
   importance_rsf <- vimp(rsf_model)$importance
@@ -257,7 +269,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   # Extract coefficients from the fitted model
   RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
 
-
+  
   ############# Fit the Causal forest model
 
   # Convert the 'genes_expression_train' data frame to a matrix, excluding the column "patient" by finding its index and removing it
