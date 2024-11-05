@@ -1,0 +1,254 @@
+---
+title: "Network-based models"
+output: html_document
+params:
+  folds: 10
+  unweighted: TRUE
+  cutoff: 0.3
+  centrality: "degree"
+  min.degree: 0.3
+  n.cores: 8  
+  s: "lambda.min"
+  prop: 0.8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, eval=FALSE, include=FALSE}
+renv::install("sysbiomed/glmSparseNet")
+```
+
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+.raw_gene <- feather::read_feather("Results/genes_expression.feather")
+.raw_surv <- feather::read_feather("Results/survival_data.feather")
+
+# Data structures
+data <- list(
+  raw = left_join(.raw_surv, .raw_gene, by = "patient")
+)
+models <- list()
+```
+
+### Split data
+
+```{r}
+data$split <- rsample::initial_split(data$raw, prop = params$prop, strata = "vital_status")
+data$train <- list(raw = rsample::training(data$split))
+data$test <- list(raw = rsample::testing(data$split))
+```
+
+### Build networks
+
+#### Correlation from training data
+
+```{r}
+data$cor <- glmSparseNet:::run.cache(
+  glmSparseNet::networkCorParallel, 
+  xdata = data$train$raw |>
+    dplyr::select(-patient, -vital_status, -days) |> 
+    as.matrix(),
+  n.cores = params$n.cores
+) |> 
+  abs()
+```
+
+
+#### Build PPI network
+
+```{r}
+data$ppi <- local({
+  # Run cache allows to save up computation time by avoiding calling the same long
+  # running functions with same arguments multiple times
+  ppi_data <- glmSparseNet:::run.cache(stringDBhomoSapiens, score_threshold = 700) 
+  glmSparseNet:::run.cache(glmSparseNet::buildStringNetwork, ppi_data, "ensembl")
+})
+```
+
+### Prepare data for glmSparseNet
+
+```{r}
+data$train$xdata <- data$train$raw |>
+  select(-patient, -vital_status, -days) |> 
+  as.matrix()
+
+data$train$ydata <- data$train$raw |> 
+  select(vital_status, days) |> 
+  (\(x) Surv(x$days, x$vital_status))()
+```
+
+#### Create folds for k-fold cross-validation
+
+```{r}
+data$train$foldid <- local({
+  set.seed(2024)
+  folds <- rsample::vfold_cv(data$train$raw, v = 10, strata = "vital_status")
+  unlist(
+    lapply(
+      folds$splits,
+      \(x) {
+        setNames(
+          setdiff(seq_len(nrow(data$train$raw)), x$in_id), 
+          rep(gsub("Fold", "", x$id) |> as.numeric(), nrow(data$train$raw) - length(x$in_id))
+        )
+      }
+    )
+  ) |> 
+    sort() |> 
+    names() |> 
+    as.numeric()
+})
+```
+
+## Train models
+
+```{r, include=FALSE}
+my_plot <- \(x) {
+  lambda_min_count <- sum(glmnet::coef.glmnet(x, s = "lambda.min") != 0)
+  lambda_1se_count <- sum(glmnet::coef.glmnet(x, s = "lambda.1se") != 0)
+  title_str <- glue::glue("{attr(x, 'label')} (selected vars min: {lambda_min_count} ; 1se: {lambda_1se_count})")
+  plot(x)
+  title(sub = title_str)
+}
+```
+
+### GLMNET
+
+#### Lasso
+
+```{r}
+models$lasso <- glmnet::cv.glmnet(
+  data$train$xdata,
+  data$train$ydata,
+  #
+  alpha = 1,
+  family = "cox",
+  foldid = data$train$foldid
+)
+attr(models$lasso, "label") <- "lasso"
+my_plot(models$lasso)
+```
+
+#### EN (0.8)
+
+```{r}
+models$en_0_8 <- glmnet::cv.glmnet(
+  data$train$xdata,
+  data$train$ydata,
+  alpha = .8,
+  #
+  family = "cox",
+  foldid = data$train$foldid
+)
+attr(models$en_0_8, "label") <- "Elastic net (0.8)"
+my_plot(models$en_0_8)
+```
+
+#### EN (0.5)
+
+```{r}
+models$en_0_5 <- glmnet::cv.glmnet(
+  data$train$xdata,
+  data$train$ydata,
+  alpha = .5,
+  #
+  family = "cox",
+  foldid = data$train$foldid
+)
+attr(models$en_0_5, "label") <- "Elastic net (0.5)"
+my_plot(models$en_0_5)
+```
+
+### glmSparseNet
+
+#### HubCox
+
+```{r}
+models$hub_cor <- glmSparseNet::cv.glmHub(
+  data$train$xdata,
+  data$train$ydata,
+  network = data$cor,
+  network.options = networkOptions(
+    unweighted = TRUE,
+    cutoff = 0.3,
+    centrality = "degree",
+    min.degree = 0.3,
+    n.cores = 8
+  ),
+  #
+  family = "cox",
+  foldid = data$train$foldid
+)
+attr(models$hub_cor, "label") <- "Hub Correlation"
+my_plot(models$hub_cor)
+```
+
+#### OrphanCox
+
+```{r}
+models$orphan_cor <- glmSparseNet::cv.glmHub(
+  data$train$xdata,
+  data$train$ydata,
+  network = data$cor,
+  network.options = networkOptions(
+    unweighted = TRUE,
+    cutoff = 0.3,
+    centrality = "degree",
+    min.degree = 0.3,
+    n.cores = 8
+  ),
+  #
+  family = "cox",
+  foldid = data$train$foldid
+)
+attr(models$orphan_cor, "label") <- "Orphan Correlation"
+my_plot(models$orphan_cor)
+```
+
+## Test
+
+```{r}
+data$test$xdata <- data$test$raw |>
+  dplyr::select(-patient, -vital_status, -days) |> 
+  as.matrix()
+
+data$test$ydata <- data$test$raw |> 
+  dplyr::select(vital_status, days) |> 
+  (\(x) Surv(x$days, x$vital_status))()
+```
+
+
+```{r}
+vapply(
+  names(models),
+  \(x) {
+    fit <- models[[x]]
+    prob_test <- stats::predict(fit, newx = data$test$xdata, s = "lambda.min", type = "response")
+    concordance(data$test$ydata ~ prob_test, reverse=TRUE)$concordance
+  },
+  numeric(1L)
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -196,6 +196,13 @@ survival_data <- orderDataByPatient(survival_data)
 log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
 
+```{r, eval=FALSE, include=FALSE}
+# Local chunk to store shared dataset
+feather::write_feather(genes_expression, "Results/genes_expression.feather")
+feather::write_feather(survival_data, "Results/survival_data.feather")
+```
+
+
 <!-- # Find the best alpha for Regularized Cox Regression model glmnet -->
 
 <!-- ```{r Find_the_best_alpha_for_Regularized_Cox_Regression, message=FALSE, warning=FALSE} -->
