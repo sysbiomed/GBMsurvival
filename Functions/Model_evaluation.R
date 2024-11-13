@@ -18,6 +18,67 @@ calculate_c_index <- function(survival_object_train, genes_expression_train, mod
 }
 
 
+# Function to calculate the Integrated Brier Score (IBS)
+
+calculate_integrated_brier_score <- function(survival_object_train, genes_expression_train, models_coefficients, genes_expression_test, survival_test) {
+  
+  # Fit a Cox regression model using the covariates
+  fit <- coxph(survival_object_train ~ ., 
+               data = subset(genes_expression_train, select = models_coefficients$ensembl_gene_id), # specify coefficients 
+               init = as.numeric(models_coefficients$Coef_value), # specify coefficient values
+               iter.max = 0, # force the software to keep those values
+               x = TRUE)
+  
+  # Prepare test data by adding survival time and status as columns
+  genes_expression_test$days <- survival_test$days
+  genes_expression_test$vital_status <- survival_test$vital_status
+  
+  # Calculate the Brier Score over time and the Integrated Brier Score (IBS)
+  ibs_result <- pec(object = list("Cox" = fit), 
+                    formula = Surv(days, vital_status) ~ 1, 
+                    data = genes_expression_test, 
+                    times = seq(0, max(survival_test$days), by = 1), # time points for evaluation
+                    exact = TRUE)
+  
+  # Extract the Integrated Brier Score
+  ibs <- crps(ibs_result)
+  output <- capture.output(print(ibs))
+  
+  # Extract the line with the IBS value using regular expressions
+  cox_line <- grep("Cox", output, value = TRUE)
+  cox_ibs_value <- as.numeric(sub(".*Cox\\s+([0-9.]+).*", "\\1", cox_line))
+  
+  return(cox_ibs_value)
+
+}
+
+# Function to calculate Mean Reciprocal Rank (MRR) for each model
+calculate_MRR <- function(metric_df, higher_is_better = TRUE) { #TRUE for C-index, FALSE for IBS
+  
+  #notas: para a definição do rank os NA é como se não existissem e para o calculo do MRR não entram na média. 
+  #Exemplo (menor é melhor): values: 3, NA, 5, 2, NA, 4; rank: 2, NA, 4, 1, NA, 3
+  
+  # Determine the ranks based on the `higher_is_better` parameter
+  ranked_df <- if (higher_is_better) {
+    # Higher values better: rank in descending order
+    apply(metric_df, 2, function(x) rank(-x, ties.method = "average", na.last = "keep")) # 2 means it operates over columns
+  } else {
+    # Lower values better: rank in ascending order
+    apply(metric_df, 2, function(x) rank(x, ties.method = "average", na.last = "keep"))
+  }
+  
+  # Find the reciprocal rank of each model in each seed
+  reciprocal_ranks <- 1 / ranked_df
+  
+  # Calculate the Mean Reciprocal Rank (MRR) for each model, , excluding NAs
+  mrr_values <- rowMeans(reciprocal_ranks, na.rm = TRUE)
+  
+  # Create a data frame with MRR results
+  mrr_results <- data.frame(MRR = mrr_values)
+  
+  return(mrr_results)
+}
+
 # Get Information about the genes whose coefficient is not zero
 
 getGenesInfo <- function(coefficients) {

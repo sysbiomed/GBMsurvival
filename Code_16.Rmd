@@ -1,7 +1,7 @@
 ---
 title: "Glioma biomarkers to distinguish high-risk from low-risk patients"
-author: "Beatriz Leitão and Susana Vinga"
-date: "September, 2024"
+author: "Beatriz N. Leitão, André Veríssimo, Alexandra M. Carvalho and Susana Vinga"
+date: "November, 2024"
 output:
   html_document: 
     number_sections: yes
@@ -25,7 +25,7 @@ load_libraries <- function(...) {
   lapply(libs, require, character.only = TRUE)
 }
 
-invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "randomForestSRC", "grf", "Boruta", "timeROC", "qvalue", "clusterProfiler", "org.Hs.eg.db", "enrichplot", "pathview", "UpSetR","rsample"))
+invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "randomForestSRC", "grf", "Boruta", "timeROC", "qvalue", "clusterProfiler", "org.Hs.eg.db", "enrichplot", "pathview", "UpSetR","rsample", "pec"))
 
 ```
 
@@ -232,7 +232,7 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 ```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("GLMNET", "SIS", "ISIS", "RandomForest+GLMNET", "CausalForest+GLMNET", "Boruta+GLMNET")
+models_names_list <- c("Cox", "SIS", "ISIS", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox")
 
 best_alpha <- 1
 n_seeds <- 10
@@ -248,6 +248,11 @@ num_models <- length(models_names_list) # Assuming each iteration has the same n
 c_index_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
 colnames(c_index_df) <- paste0("Seed_", seeds)
 rownames(c_index_df) <- models_names_list
+
+# Create an empty dataframe to store Integrated Brier Score (IBS)
+IBS_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
+colnames(IBS_df) <- paste0("Seed_", seeds)
+rownames(IBS_df) <- models_names_list
 
 # Create an empty dataframe to store the number of coefficients
 num_coeff_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
@@ -280,7 +285,7 @@ for (i in seq_along(seeds)) {
   # Fit models
   models_coefficients_list[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
 
-  # Calculate and store C-index for each model
+  # Calculate and store C-index and IBS for each model
 
   for (j in seq_along(models_coefficients_list[[i]])) {
 
@@ -289,20 +294,33 @@ for (i in seq_along(seeds)) {
     if (num_coeff_df[j, i] > 0) {
 
       c_index_df[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test, survival_data)
-      cat("seed: ", seeds[i], "\n", "c_index: ", c_index_df[j, i], "\n")
+      
+      IBS_df[j, i] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test)
+        
+      cat("seed: ", seeds[i], "\n",
+          "c_index: ", c_index_df[j, i], "\n", 
+          "IBS: ", IBS_df[j, i], "\n")
       num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
     } else {
 
-      # If the model has empty coefficients, set C-index to NA
+      # If the model has empty coefficients, set C-index and IBS to NA
       c_index_df[j, i] <- NA
+      IBS_df[j, i] <- NA
            }
     }
 }
+
+MRR_C_Index <- calculate_MRR(c_index_df, higher_is_better = TRUE)
+MRR_IBS <- calculate_MRR(IBS_df, higher_is_better = FALSE)
 
 # Create a summary table
 summary_table <- data.frame(
   C_Index_Avg = round(apply(c_index_df, 1, mean, na.rm = TRUE), 3),
   C_Index_Std_Dev = round(apply(c_index_df, 1, sd, na.rm = TRUE), 3),
+  MRR_C_Index = MRR_C_Index$MRR,
+  IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
+  IBS_Std_Dev = round(apply(IBS_df, 1, sd, na.rm = TRUE), 3),
+  MRR_IBS = MRR_IBS$MRR,
   Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
   Coeff_Num_Std_Dev = round(apply(num_coeff_df, 1, sd), 1),
   Non_Convergence_Perc = apply(num_coeff_df, 1, function(x) mean(x == 0) * 100)
@@ -340,13 +358,6 @@ genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
 genes_expression_test <- splited$expression_test
 survival_test <- splited$survival_test
-
-# Run univariate Cox regression for each variable
-#significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #0.05
-
-# reduce the genes expression data frame to only the colunmns of interest
-#genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
-
 
 # Define survival object
 survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
@@ -452,9 +463,6 @@ dev.off() # to save the plot above
 df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
 print(df_genes_in_multiple_seeds) # Display the data frame
 
-
-
-
 # Save a predictors genes and coefficients as a CSV file
 write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
 
@@ -488,7 +496,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 ```{r Fit_and_Explore_the_Models_equal, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("GLMNET", "SIS", "ISIS", "RandomForest+GLMNET", "CausalForest+GLMNET", "Boruta+GLMNET")
+models_names_list <- c("Cox", "SIS", "ISIS", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox")
 
 best_alpha <- 1
 n_seeds_all_equal <- 1
@@ -505,10 +513,15 @@ c_index_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow =
 colnames(c_index_df_all_equal) <- paste0("Seed_", seeds_all_equal)
 rownames(c_index_df_all_equal) <- models_names_list
 
+# Create an empty dataframe to store Integrated Brier Score (IBS)
+IBS_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
+colnames(IBS_df) <- paste0("Seed_", seeds_all_equal)
+rownames(IBS_df) <- models_names_list
+
 # Create an empty dataframe to store the number of coefficients
-num_coeff_df <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(num_coeff_df) <- paste0("Seed_", seeds_all_equal)
-rownames(num_coeff_df) <- models_names_list
+num_coeff_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
+colnames(num_coeff_df_all_equal) <- paste0("Seed_", seeds_all_equal)
+rownames(num_coeff_df_all_equal) <- models_names_list
 
 # Loop through the seeds and run the analysis
 for (i in seq_along(seeds_all_equal)) {
@@ -545,28 +558,43 @@ for (i in seq_along(seeds_all_equal)) {
   
   for (j in seq_along(models_coefficients_list_all_equal[[i]])) {
     
-    num_coeff_df[j, i] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
+    num_coeff_df_all_equal[j, i] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
     
-    if (num_coeff_df[j, i] > 0) {
+    if (num_coeff_df_all_equal[j, i] > 0) {
       
       c_index_df_all_equal[j, i] <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test, survival_data)
-      cat("seed: ", seeds_all_equal[i], "\n", "c_index: ", c_index_df_all_equal[j, i], "\n")
-      num_coeff_df[j, i] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
+      
+      IBS_df_all_equal[j, i] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test)
+        
+      cat("seed: ", seed_all_equals[i], "\n",
+          "c_index: ", c_index_df_all_equal[j, i], "\n", 
+          "IBS: ", IBS_df_all_equal[j, i], "\n")
+      num_coeff_df_all_equal[j, i] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
+    
     } else {
       
       # If the model has empty coefficients, set C-index to NA 
       c_index_df_all_equal[j, i] <- NA
+      IBS_df_all_equal[j, i] <- NA
            }
     }
 }
+
+
+MRR_C_Index_all_equal <- calculate_MRR(c_index_df_all_equal, higher_is_better = TRUE)
+MRR_IBS_all_equal <- calculate_MRR(IBS_df_all_equal, higher_is_better = FALSE)
 
 # Create a summary table
 summary_table_all_equal <- data.frame(
   C_Index_Avg = round(apply(c_index_df_all_equal, 1, mean, na.rm = TRUE), 3),
   C_Index_Std_Dev = round(apply(c_index_df_all_equal, 1, sd, na.rm = TRUE), 3),
-  Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
-  Coeff_Num_Std_Dev = round(apply(num_coeff_df, 1, sd), 1),
-  Non_Convergence_Perc = apply(num_coeff_df, 1, function(x) mean(x == 0) * 100)
+  MRR_C_Index = MRR_C_Index_all_equal$MRR,
+  IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
+  IBS_Std_Dev = round(apply(IBS_df, 1, sd, na.rm = TRUE), 3),
+  MRR_IBS = MRR_IBS_all_equal$MRR,
+  Coeff_Num_Avg = round(apply(num_coeff_df_all_equal, 1, mean), 1),
+  Coeff_Num_Std_Dev = round(apply(num_coeff_df_all_equal, 1, sd), 1),
+  Non_Convergence_Perc = apply(num_coeff_df_all_equal, 1, function(x) mean(x == 0) * 100)
 )
 
 #Save a summary table as a CSV file
@@ -602,13 +630,6 @@ genes_expression_train <- genes_expression
 survival_train <- survival_data
 genes_expression_test <- genes_expression
 survival_test <- survival_data
-
-# Run univariate Cox regression for each variable
-#significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #0.05
-
-# reduce the genes expression data frame to only the colunmns of interest
-#genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
-
 
 # Define survival object
 survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)

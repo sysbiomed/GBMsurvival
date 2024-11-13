@@ -189,7 +189,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
                        alpha = best_alpha)  # alpha = 1 for LASSO, 0 for ridge
 
   # Extract coefficients from the fitted model
-  GLMNET_Coefficients <- extractCoxRegressionCoefficients(fit_COX)
+  Cox_Coefficients <- extractCoxRegressionCoefficients(fit_COX)
 
   ############# fit the Regularized Cox Regression SIS
   set.seed(1012)
@@ -269,7 +269,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   # Extract coefficients from the fitted model
   RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
 
-  
+
   ############# Fit the Causal forest model
 
   # Convert the 'genes_expression_train' data frame to a matrix, excluding the column "patient" by finding its index and removing it
@@ -333,7 +333,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
 
 
 
-  models_coefficients <- list(GLMNET_Coefficients, SIS_Coefficients, ISIS_Coefficients, RandomForest_Coefficients, CausalForest_Coefficients, Boruta_Coefficients)
+  models_coefficients <- list(Cox_Coefficients, SIS_Coefficients, ISIS_Coefficients, RandomForest_Coefficients, CausalForest_Coefficients, Boruta_Coefficients)
   
   # Return the dataframe and the fitted models
   return(models_coefficients)
