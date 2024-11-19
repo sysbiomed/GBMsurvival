@@ -2,13 +2,31 @@
 local_file <- withr::local_tempfile()
 
 #' @export
-string_db_local <- function(file_path = local_file) {
-  
-  file_path |> 
-    readr::read_delim(delim = " ") |> 
-    # remove combined score, as we are calculating ourselves
-    dplyr::select(-"combined_score")
-}
+memoise_cache <- cachem::cache_disk(here::here("run-cache"))
+
+#' @export
+string_db_local_cache <- memoise::memoise(
+  function(file_path = local_file) {
+    
+    file_path |> 
+      readr::read_delim(delim = " ") |> 
+      # remove combined score, as we are calculating ourselves
+      dplyr::select(-"combined_score")
+  },
+  cache = memoise_cache
+)
+
+#' @export
+calculate.combined.score_cache <- memoise::memoise(
+  glmSparseNet:::calculate.combined.score,
+  cache = memoise_cache
+)
+
+#' @export
+buildStringNetwork_cache <- memoise::memoise(
+  glmSparseNet::buildStringNetwork,
+  cache = memoise_cache
+)
 
 #' @export
 string_db_homo_sapiens <- function(

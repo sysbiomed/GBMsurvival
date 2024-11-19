@@ -21,7 +21,7 @@ purrr::walk(string_cutoff[1], \(x) {
   purrr::walk(alpha[1], \(y) {
     rmarkdown::render(
       "network.Rmd", 
-      output_file = glue::glue("out/network_{x}_{y}.html"), 
+      output_file = glue::glue("Results/reports/network_{x}_{y}.html"), 
       params = list(string_cutoff = x, alpha = y, parallel = FALSE))
   })
 })
@@ -47,13 +47,18 @@ box::use(
   tictoc[tic, toc],
   
   # Custom functons for network operations
-  ./Functions/network_utils[string_db_homo_sapiens, string_db_local, my_plot],
+  ./Functions/network_utils[
+    string_db_homo_sapiens, string_db_local_cache, my_plot, 
+    calculate.combined.score_cache, buildStringNetwork_cache, memoise_cache
+  ],
 )
 
 # Parallel cv.glmnet
 doMC::registerDoMC(cores = 5)
 logger::log_layout(logger::layout_glue_colors)
 logger::log_appender(logger::appender_tee("logger_network.txt"))
+
+glmnet_cache <- memoise::memoise(glmnet::glmnet, cache = memoise_cache)
 ```
 
 ## Read data
@@ -98,23 +103,19 @@ data$test <- list(raw = rsample::testing(data$split))
 
 #### Build PPI network
 
-```{r}
+```{r ppi_network}
 data$ppi <- local({
-  # Run cache allows to save up computation time by avoiding calling the same long
-  # running functions with same arguments multiple times
   string_db_homo_sapiens()
-  ppi_raw <- glmSparseNet:::run.cache(string_db_local)
+  ppi_raw <- string_db_local()
+  ppi_data <- calculate.combined.score_cache(ppi_raw, score_threshold = params$string_cutoff, remove.text = TRUE)
   
-  ppi_raw_hash <- glmSparseNet:::digest.cache(ppi_raw) # Faster to try different score_thresholds
-  ppi_data <- glmSparseNet:::run.cache(glmSparseNet:::calculate.combined.score, ppi_raw, score_threshold = params$string_cutoff, remove.text = TRUE, cache.digest = list(ppi_raw_hash))
-  
-  glmSparseNet:::run.cache(glmSparseNet::buildStringNetwork, ppi_data, "ensembl")
+  glmSparseNet::buildStringNetwork(ppi_data, "ensembl")
 })
 ```
 
 Fill in the blanks of non-existing genes in (filtered) StringDB.
 
-```{r}
+```{r fill_ppi}
 data$full_ppi <- local({
   different_names <- colnames(data$raw)[
     !colnames(data$raw) %in% 
@@ -182,7 +183,7 @@ data$train$foldid <- local({
 
 #### Lasso
 
-```{r}
+```{r lasso}
 cli_alert_info("Training model for 'LASSO'...")
 tic()
 models$lasso <- glmnet::cv.glmnet(
@@ -205,7 +206,7 @@ my_plot(models$lasso)
 
 #### EN (0.8)
 
-```{r}
+```{r en_8}
 cli_alert_info("Training model for 'EN (0.8)'...")
 tic()
 models$en_0_8 <- glmnet::cv.glmnet(
@@ -228,7 +229,7 @@ my_plot(models$en_0_8)
 
 #### EN (0.5)
 
-```{r}
+```{r en_5}
 cli_alert_info("Training model for 'EN (0.5)'...")
 tic()
 models$en_0_5 <- glmnet::cv.glmnet(
@@ -264,6 +265,7 @@ data$covariates <- list(
 data$penalty <- local({
   calc_penalty <- \(x, fun, min_degree = params$min_degree) fun(Matrix::colSums(x) + Matrix::rowSums(x)) + min_degree
  
+  partial_covariates <- data$covariates$orphan_partial
   list(
     orphan = calc_penalty(data$full_ppi, glmSparseNet::orphanHeuristic),
     orphan_partial = calc_penalty(data$full_ppi[partial_covariates, partial_covariates], glmSparseNet::orphanHeuristic),
@@ -302,7 +304,7 @@ penalty_plot_data |>
 
 #### Network models
 
-```{r}
+```{r network_models}
 new_models <- purrr::map(
   rlang::set_names(c("hub", "hub_partial", "orphan", "orphan_partial")),
   \(ix) {
@@ -385,10 +387,16 @@ results
 
 ```{r}
 results |> 
-  dplyr::mutate(label = sprintf("%s (cindex: %.5f, pvalue: %.5f)", label, c_index, log_rank_pvalue)) |>
+  dplyr::mutate(label = sprintf("%s\n(p: %.3f, c: %.3f)", label, log_rank_pvalue, c_index)) |>
   ggplot2::ggplot(ggplot2::aes(x = c_index, y = log_rank_pvalue, label = label)) +
+  ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray") + 
   ggplot2::geom_point() +
-  ggrepel::geom_text_repel() + 
+  ggplot2::xlim(0,1) + 
+  ggplot2::ylim(0, 1) +
+  ggplot2::xlab("C-Index") +
+  ggplot2::ylab("Log-rank p-value") +
+  ggplot2::geom_hline(yintercept = 0.05, linetype = "dashed", color = "red", alpha = .4) +
+  ggplot2::annotate("text", x = 0, y = 0.045, label = "p-value ≤ 0.05", hjust = 0, vjust = 1, color = "red", alpha = .4) +
   ggplot2::theme_minimal()
 ```
 ```
