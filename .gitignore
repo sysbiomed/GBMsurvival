@@ -7,3 +7,6 @@ GDCdata
 renv
 Glioma - data consolidation.xlsx
 Glioma_merged_classification_mutations_survival.csv
+9606.protein.links.full.*.txt.gz
+out/
+run-cache

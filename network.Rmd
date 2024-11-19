@@ -2,15 +2,31 @@
 title: "Network-based models"
 output: html_document
 params:
-  folds: 10
-  unweighted: TRUE
-  cutoff: 0.3
-  centrality: "degree"
-  min.degree: 0.3
-  n.cores: 8  
-  s: "lambda.min"
+  seed: 2024
   prop: 0.8
+  folds: 10
+  string_cutoff: 400
+  min_degree: 0.3
+  s: "lambda.min"
+  alpha: 0.5
+  parallel: TRUE
 ---
+
+```{r, eval=FALSE, include=FALSE}
+string_cutoff <- c(300, 400, 500, 600, 700)
+alpha <- c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+dir.create("out", showWarnings = FALSE)
+purrr::walk(string_cutoff[1], \(x) {
+  purrr::walk(alpha[1], \(y) {
+    rmarkdown::render(
+      "network.Rmd", 
+      output_file = glue::glue("out/network_{x}_{y}.html"), 
+      params = list(string_cutoff = x, alpha = y, parallel = FALSE))
+  })
+})
+```
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -20,10 +36,27 @@ knitr::opts_chunk$set(echo = TRUE)
 renv::install("sysbiomed/glmSparseNet")
 ```
 
+##### Load functions to enviroment / init options
+
 ```{r}
-library(dplyr)
+box::use(
+  # Auxiliary functions used often (others use double colon)
+  dplyr[select, left_join],
+  logger[log_info, log_warn, log_fatal],
+  cli[cli_alert_info, cli_alert_danger, cli_alert_warning, cli_alert_success],
+  tictoc[tic, toc],
+  
+  # Custom functons for network operations
+  ./Functions/network_utils[string_db_homo_sapiens, string_db_local, my_plot],
+)
+
+# Parallel cv.glmnet
+doMC::registerDoMC(cores = 5)
+logger::log_layout(logger::layout_glue_colors)
+logger::log_appender(logger::appender_tee("logger_network.txt"))
 ```
 
+## Read data
 
 ```{r}
 .raw_gene <- feather::read_feather("Results/genes_expression.feather")
@@ -33,12 +66,15 @@ library(dplyr)
 data <- list(
   raw = left_join(.raw_surv, .raw_gene, by = "patient")
 )
+
+colnames(data$raw) <- data$raw |> colnames() |> stringr::str_replace("[.][0-9]+$", "")
 models <- list()
 ```
 
 ### Split data
 
 ```{r}
+set.seed(params$seed)
 data$split <- rsample::initial_split(data$raw, prop = params$prop, strata = "vital_status")
 data$train <- list(raw = rsample::training(data$split))
 data$test <- list(raw = rsample::testing(data$split))
@@ -49,14 +85,14 @@ data$test <- list(raw = rsample::testing(data$split))
 #### Correlation from training data
 
 ```{r}
-data$cor <- glmSparseNet:::run.cache(
-  glmSparseNet::networkCorParallel, 
-  xdata = data$train$raw |>
-    dplyr::select(-patient, -vital_status, -days) |> 
-    as.matrix(),
-  n.cores = params$n.cores
-) |> 
-  abs()
+# data$cor <- glmSparseNet:::run.cache(
+#   glmSparseNet::networkCorParallel, 
+#   xdata = data$train$raw |>
+#     dplyr::select(-patient, -vital_status, -days) |> 
+#     as.matrix(),
+#   n.cores = params$n.cores
+# ) |> 
+#   abs()
 ```
 
 
@@ -66,12 +102,46 @@ data$cor <- glmSparseNet:::run.cache(
 data$ppi <- local({
   # Run cache allows to save up computation time by avoiding calling the same long
   # running functions with same arguments multiple times
-  ppi_data <- glmSparseNet:::run.cache(stringDBhomoSapiens, score_threshold = 700) 
+  string_db_homo_sapiens()
+  ppi_raw <- glmSparseNet:::run.cache(string_db_local)
+  
+  ppi_raw_hash <- glmSparseNet:::digest.cache(ppi_raw) # Faster to try different score_thresholds
+  ppi_data <- glmSparseNet:::run.cache(glmSparseNet:::calculate.combined.score, ppi_raw, score_threshold = params$string_cutoff, remove.text = TRUE, cache.digest = list(ppi_raw_hash))
+  
   glmSparseNet:::run.cache(glmSparseNet::buildStringNetwork, ppi_data, "ensembl")
 })
 ```
 
-### Prepare data for glmSparseNet
+Fill in the blanks of non-existing genes in (filtered) StringDB.
+
+```{r}
+data$full_ppi <- local({
+  different_names <- colnames(data$raw)[
+    !colnames(data$raw) %in% 
+      c("patient", "vital_status", "days", colnames(data$ppi))
+  ]
+  new_size <- length(different_names) + ncol(data$ppi)
+  full_ppi <- Matrix::sparseMatrix(
+    i = c(), 
+    j = c(), 
+    x = numeric(0L),
+    dims = c(new_size, new_size)
+  )
+  full_ppi[seq_len(nrow(data$ppi)), seq_len(ncol(data$ppi))] <- data$ppi != 0
+  colnames(full_ppi) <- c(colnames(data$ppi), different_names)
+  rownames(full_ppi) <- colnames(full_ppi)
+  
+  gene_names_original <- data$raw |> 
+    colnames() |>
+    purrr::discard(~.x %in% c("patient", "vital_status", "days"))
+  
+  # Return original order of data$raw
+  full_ppi[gene_names_original, gene_names_original]
+})
+```
+
+
+### Prepare `xdata` & `ydata`
 
 ```{r}
 data$train$xdata <- data$train$raw |>
@@ -80,15 +150,15 @@ data$train$xdata <- data$train$raw |>
 
 data$train$ydata <- data$train$raw |> 
   select(vital_status, days) |> 
-  (\(x) Surv(x$days, x$vital_status))()
+  (\(x) survival::Surv(x$days, x$vital_status))()
 ```
 
 #### Create folds for k-fold cross-validation
 
 ```{r}
 data$train$foldid <- local({
-  set.seed(2024)
-  folds <- rsample::vfold_cv(data$train$raw, v = 10, strata = "vital_status")
+  set.seed(params$seed - 100)
+  folds <- rsample::vfold_cv(data$train$raw, v = params$folds, strata = "vital_status")
   unlist(
     lapply(
       folds$splits,
@@ -108,107 +178,171 @@ data$train$foldid <- local({
 
 ## Train models
 
-```{r, include=FALSE}
-my_plot <- \(x) {
-  lambda_min_count <- sum(glmnet::coef.glmnet(x, s = "lambda.min") != 0)
-  lambda_1se_count <- sum(glmnet::coef.glmnet(x, s = "lambda.1se") != 0)
-  title_str <- glue::glue("{attr(x, 'label')} (selected vars min: {lambda_min_count} ; 1se: {lambda_1se_count})")
-  plot(x)
-  title(sub = title_str)
-}
-```
-
 ### GLMNET
 
 #### Lasso
 
 ```{r}
+cli_alert_info("Training model for 'LASSO'...")
+tic()
 models$lasso <- glmnet::cv.glmnet(
   data$train$xdata,
   data$train$ydata,
   #
   alpha = 1,
   family = "cox",
+  parallel = params$parallel,
   foldid = data$train$foldid
 )
+cli_alert_success("Model trained in {toc(quiet = TRUE)$callback_msg}")
+attr(models$lasso, "alpha") <- 1
+attr(models$lasso, "penalty") <- NULL
+attr(models$lasso, "covariates") <- colnames(data$train$xdata)
 attr(models$lasso, "label") <- "lasso"
+gc(FALSE)
 my_plot(models$lasso)
 ```
 
 #### EN (0.8)
 
 ```{r}
+cli_alert_info("Training model for 'EN (0.8)'...")
+tic()
 models$en_0_8 <- glmnet::cv.glmnet(
   data$train$xdata,
   data$train$ydata,
   alpha = .8,
   #
   family = "cox",
+  parallel = params$parallel,
   foldid = data$train$foldid
 )
+cli_alert_success("Model trained in {toc(quiet = TRUE)$callback_msg}")
+attr(models$en_0_8, "alpha") <- 0.8
+attr(models$en_0_8, "penalty") <- NULL
+attr(models$en_0_8, "covariates") <- colnames(data$train$xdata)
 attr(models$en_0_8, "label") <- "Elastic net (0.8)"
+gc(FALSE)
 my_plot(models$en_0_8)
 ```
 
 #### EN (0.5)
 
 ```{r}
+cli_alert_info("Training model for 'EN (0.5)'...")
+tic()
 models$en_0_5 <- glmnet::cv.glmnet(
   data$train$xdata,
   data$train$ydata,
   alpha = .5,
   #
   family = "cox",
+  parallel = params$parallel,
   foldid = data$train$foldid
 )
+cli_alert_success("Model trained in {toc(quiet = TRUE)$callback_msg}")
+attr(models$en_0_5, "alpha") <- 0.5
+attr(models$en_0_5, "penalty") <- NULL
+attr(models$en_0_5, "covariates") <- colnames(data$train$xdata)
 attr(models$en_0_5, "label") <- "Elastic net (0.5)"
+gc(FALSE)
 my_plot(models$en_0_5)
 ```
 
 ### glmSparseNet
 
-#### HubCox
+- Prepares data explicitly
 
 ```{r}
-models$hub_cor <- glmSparseNet::cv.glmHub(
-  data$train$xdata,
-  data$train$ydata,
-  network = data$cor,
-  network.options = networkOptions(
-    unweighted = TRUE,
-    cutoff = 0.3,
-    centrality = "degree",
-    min.degree = 0.3,
-    n.cores = 8
-  ),
-  #
-  family = "cox",
-  foldid = data$train$foldid
+data$covariates <- list(
+  orphan = colnames(data$full_ppi),
+  orphan_partial = intersect(colnames(data$ppi), colnames(data$raw)),
+  hub = colnames(data$full_ppi),
+  hub_partial = intersect(colnames(data$ppi), colnames(data$raw))
 )
-attr(models$hub_cor, "label") <- "Hub Correlation"
-my_plot(models$hub_cor)
+
+data$penalty <- local({
+  calc_penalty <- \(x, fun, min_degree = params$min_degree) fun(Matrix::colSums(x) + Matrix::rowSums(x)) + min_degree
+ 
+  list(
+    orphan = calc_penalty(data$full_ppi, glmSparseNet::orphanHeuristic),
+    orphan_partial = calc_penalty(data$full_ppi[partial_covariates, partial_covariates], glmSparseNet::orphanHeuristic),
+    hub = calc_penalty(data$full_ppi, glmSparseNet::hubHeuristic),
+    hub_partial = calc_penalty(data$full_ppi[partial_covariates, partial_covariates], glmSparseNet::hubHeuristic)
+  )
+})
 ```
 
-#### OrphanCox
+### Histogram of penalties' distribution
 
 ```{r}
-models$orphan_cor <- glmSparseNet::cv.glmHub(
-  data$train$xdata,
-  data$train$ydata,
-  network = data$cor,
-  network.options = networkOptions(
-    unweighted = TRUE,
-    cutoff = 0.3,
-    centrality = "degree",
-    min.degree = 0.3,
-    n.cores = 8
-  ),
-  #
-  family = "cox",
-  foldid = data$train$foldid
+penalty_plot_data <- data$penalty |> 
+  purrr::imap(\(x, i) tibble::tibble(penalty = x, network = i)) |> 
+  purrr::list_rbind()
+```
+
+```{r}
+penalty_plot_data |> 
+  ggplot2::ggplot() +
+  ggplot2::geom_histogram(ggplot2::aes(x = penalty, fill = network), binwidth = .5, alpha = 0.5, na.rm = TRUE) +
+  ggplot2::scale_y_continuous(trans = "log10") +
+  ggplot2::ylab("(log10)") +
+  ggplot2::theme_minimal()
+```
+
+```{r}
+penalty_plot_data |> 
+  ggplot2::ggplot() +
+  ggplot2::geom_density(ggplot2::aes(x = penalty, fill = network), alpha = 0.5, kernel = "rectangular") +
+  ggplot2::scale_x_continuous(trans = "log10") +
+  ggplot2::xlab("penalty (log10)") +
+  ggplot2::facet_grid(cols = ggplot2::vars(network), scales = "free") + 
+  ggplot2::theme_minimal()
+```
+
+#### Network models
+
+```{r}
+new_models <- purrr::map(
+  rlang::set_names(c("hub", "hub_partial", "orphan", "orphan_partial")),
+  \(ix) {
+    cli_alert_info("Training model for '{ix}'...")
+    tic()
+    new_model <- glmnet::cv.glmnet(
+      data$train$xdata[, data$covariates[[ix]]],
+      data$train$ydata,
+      penalty = data$penalty[[ix]],
+      alpha = params$alpha,
+      family = "cox",
+      foldid = data$train$foldid,
+      parallel = params$parallel
+    )
+    gc(FALSE)
+    attr(new_model, "alpha") <- params$alpha
+    attr(new_model, "penalty") <- data$penalty[[ix]]
+    attr(new_model, "covariates") <- data$covariates[[ix]]
+    attr(new_model, "label") <- gsub("_", " ", ix) |> 
+      tools::toTitleCase() |> 
+      stringr::str_replace("Partial", "(partial)")
+    
+    cli_alert_success("Model trained in {toc(quiet = TRUE)$callback_msg}")
+    new_model
+  }
 )
-attr(models$orphan_cor, "label") <- "Orphan Correlation"
-my_plot(models$orphan_cor)
+
+models <- Reduce(
+  x = names(new_models),
+  f = \(u, x) {
+    u[[x]] <- new_models[[x]]
+    u
+  },
+  init = models
+)
+  
+```
+
+```{r}
+purrr::walk(new_models, ~my_plot(.x))
 ```
 
 ## Test
@@ -220,21 +354,45 @@ data$test$xdata <- data$test$raw |>
 
 data$test$ydata <- data$test$raw |> 
   dplyr::select(vital_status, days) |> 
-  (\(x) Surv(x$days, x$vital_status))()
+  (\(x) survival::Surv(x$days, x$vital_status))()
 ```
 
+### C-Index
 
 ```{r}
-vapply(
-  names(models),
+results <- purrr::map(
+  rlang::set_names(names(models)),
   \(x) {
     fit <- models[[x]]
-    prob_test <- stats::predict(fit, newx = data$test$xdata, s = "lambda.min", type = "response")
-    concordance(data$test$ydata ~ prob_test, reverse=TRUE)$concordance
-  },
-  numeric(1L)
-)
+    covariates <- attr(fit, "covariates")
+    prob_test <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "response")
+    c_index <- survival::concordance(data$test$ydata ~ prob_test, reverse=TRUE)$concordance
+    
+    risk_scores <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    log_rank_result <- survival::survdiff(data$test$ydata ~ risk_group)
+    
+    tibble::tibble(model = x, label = attr(fit, "label"), c_index = c_index, log_rank_pvalue = log_rank_result$pvalue)
+  }
+) |> 
+  purrr::list_rbind()
 ```
+
+```{r}
+results
+```
+
+```{r}
+results |> 
+  dplyr::mutate(label = sprintf("%s (cindex: %.5f, pvalue: %.5f)", label, c_index, log_rank_pvalue)) |>
+  ggplot2::ggplot(ggplot2::aes(x = c_index, y = log_rank_pvalue, label = label)) +
+  ggplot2::geom_point() +
+  ggrepel::geom_text_repel() + 
+  ggplot2::theme_minimal()
+```
+```
+
 
 
 
