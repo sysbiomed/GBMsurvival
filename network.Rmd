@@ -16,9 +16,9 @@ params:
 string_cutoff <- c(300, 400, 500, 600, 700)
 alpha <- c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
-dir.create("out", showWarnings = FALSE)
-purrr::walk(string_cutoff[1], \(x) {
-  purrr::walk(alpha[1], \(y) {
+dir.create("Results/reports", showWarnings = FALSE)
+purrr::walk(string_cutoff, \(x) {
+  purrr::walk(alpha, \(y) {
     rmarkdown::render(
       "network.Rmd", 
       output_file = glue::glue("Results/reports/network_{x}_{y}.html"), 
@@ -106,10 +106,10 @@ data$test <- list(raw = rsample::testing(data$split))
 ```{r ppi_network}
 data$ppi <- local({
   string_db_homo_sapiens()
-  ppi_raw <- string_db_local()
+  ppi_raw <- string_db_local_cache()
   ppi_data <- calculate.combined.score_cache(ppi_raw, score_threshold = params$string_cutoff, remove.text = TRUE)
   
-  glmSparseNet::buildStringNetwork(ppi_data, "ensembl")
+  buildStringNetwork_cache(ppi_data, "ensembl")
 })
 ```
 
@@ -373,7 +373,11 @@ results <- purrr::map(
     risk_scores <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "link")
     risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
     
-    log_rank_result <- survival::survdiff(data$test$ydata ~ risk_group)
+    log_rank_result <- if (length(unique(risk_group)) == 2L) {
+      survival::survdiff(data$test$ydata ~ risk_group) 
+    } else {
+      list(pvalue = 1)
+    }
     
     tibble::tibble(model = x, label = attr(fit, "label"), c_index = c_index, log_rank_pvalue = log_rank_result$pvalue)
   }
