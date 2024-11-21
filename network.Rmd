@@ -58,7 +58,7 @@ doMC::registerDoMC(cores = 5)
 logger::log_layout(logger::layout_glue_colors)
 logger::log_appender(logger::appender_tee("logger_network.txt"))
 
-glmnet_cache <- memoise::memoise(glmnet::glmnet, cache = memoise_cache)
+cv.glmnet_cache <- memoise::memoise(glmnet::cv.glmnet, cache = memoise_cache)
 ```
 
 ## Read data
@@ -186,7 +186,7 @@ data$train$foldid <- local({
 ```{r lasso}
 cli_alert_info("Training model for 'LASSO'...")
 tic()
-models$lasso <- glmnet::cv.glmnet(
+models$lasso <- cv.glmnet(
   data$train$xdata,
   data$train$ydata,
   #
@@ -209,7 +209,7 @@ my_plot(models$lasso)
 ```{r en_8}
 cli_alert_info("Training model for 'EN (0.8)'...")
 tic()
-models$en_0_8 <- glmnet::cv.glmnet(
+models$en_0_8 <- cv.glmnet(
   data$train$xdata,
   data$train$ydata,
   alpha = .8,
@@ -232,7 +232,7 @@ my_plot(models$en_0_8)
 ```{r en_5}
 cli_alert_info("Training model for 'EN (0.5)'...")
 tic()
-models$en_0_5 <- glmnet::cv.glmnet(
+models$en_0_5 <- cv.glmnet(
   data$train$xdata,
   data$train$ydata,
   alpha = .5,
@@ -310,7 +310,7 @@ new_models <- purrr::map(
   \(ix) {
     cli_alert_info("Training model for '{ix}'...")
     tic()
-    new_model <- glmnet::cv.glmnet(
+    new_model <- cv.glmnet(
       data$train$xdata[, data$covariates[[ix]]],
       data$train$ydata,
       penalty = data$penalty[[ix]],
