@@ -2,7 +2,7 @@
 local_file <- withr::local_tempfile()
 
 #' @export
-memoise_cache <- cachem::cache_disk(here::here("run-cache"))
+memoise_cache <- cachem::cache_disk(here::here("memoise-cache-network"))
 
 #' @export
 string_db_local_cache <- memoise::memoise(

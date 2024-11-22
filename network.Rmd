@@ -5,12 +5,13 @@ params:
   seed: 2024
   prop: 0.8
   folds: 10
-  string_cutoff: 400
+  string_cutoff: 500
   min_degree: 0.3
   s: "lambda.min"
-  alpha: 0.5
+  alpha: 0.9
   parallel: TRUE
 ---
+
 
 ```{r, eval=FALSE, include=FALSE}
 string_cutoff <- c(300, 400, 500, 600, 700)
@@ -41,7 +42,7 @@ renv::install("sysbiomed/glmSparseNet")
 ```{r}
 box::use(
   # Auxiliary functions used often (others use double colon)
-  dplyr[select, left_join],
+  dplyr[select, left_join, mutate],
   logger[log_info, log_warn, log_fatal],
   cli[cli_alert_info, cli_alert_danger, cli_alert_warning, cli_alert_success],
   tictoc[tic, toc],
@@ -105,10 +106,16 @@ data$test <- list(raw = rsample::testing(data$split))
 
 ```{r ppi_network}
 data$ppi <- local({
-  string_db_homo_sapiens()
-  ppi_raw <- string_db_local_cache()
-  ppi_data <- calculate.combined.score_cache(ppi_raw, score_threshold = params$string_cutoff, remove.text = TRUE)
+  local_fun <- memoise::memoise(
+    function(cutoff = params$string_cutoff) {
+      string_db_homo_sapiens()
+      ppi_raw <- string_db_local_cache()
+      calculate.combined.score_cache(ppi_raw, score_threshold = cutoff, remove.text = TRUE)
+    },
+    cache = memoise_cache
+  )
   
+  ppi_data <- local_fun(params$string_cutoff)
   buildStringNetwork_cache(ppi_data, "ensembl")
 })
 ```
@@ -186,7 +193,7 @@ data$train$foldid <- local({
 ```{r lasso}
 cli_alert_info("Training model for 'LASSO'...")
 tic()
-models$lasso <- cv.glmnet(
+models$lasso <- cv.glmnet_cache(
   data$train$xdata,
   data$train$ydata,
   #
@@ -200,7 +207,7 @@ attr(models$lasso, "alpha") <- 1
 attr(models$lasso, "penalty") <- NULL
 attr(models$lasso, "covariates") <- colnames(data$train$xdata)
 attr(models$lasso, "label") <- "lasso"
-gc(FALSE)
+invisible(gc())
 my_plot(models$lasso)
 ```
 
@@ -209,7 +216,7 @@ my_plot(models$lasso)
 ```{r en_8}
 cli_alert_info("Training model for 'EN (0.8)'...")
 tic()
-models$en_0_8 <- cv.glmnet(
+models$en_0_8 <- cv.glmnet_cache(
   data$train$xdata,
   data$train$ydata,
   alpha = .8,
@@ -223,7 +230,7 @@ attr(models$en_0_8, "alpha") <- 0.8
 attr(models$en_0_8, "penalty") <- NULL
 attr(models$en_0_8, "covariates") <- colnames(data$train$xdata)
 attr(models$en_0_8, "label") <- "Elastic net (0.8)"
-gc(FALSE)
+invisible(gc())
 my_plot(models$en_0_8)
 ```
 
@@ -232,7 +239,7 @@ my_plot(models$en_0_8)
 ```{r en_5}
 cli_alert_info("Training model for 'EN (0.5)'...")
 tic()
-models$en_0_5 <- cv.glmnet(
+models$en_0_5 <- cv.glmnet_cache(
   data$train$xdata,
   data$train$ydata,
   alpha = .5,
@@ -246,7 +253,7 @@ attr(models$en_0_5, "alpha") <- 0.5
 attr(models$en_0_5, "penalty") <- NULL
 attr(models$en_0_5, "covariates") <- colnames(data$train$xdata)
 attr(models$en_0_5, "label") <- "Elastic net (0.5)"
-gc(FALSE)
+invisible(gc())
 my_plot(models$en_0_5)
 ```
 
@@ -310,7 +317,7 @@ new_models <- purrr::map(
   \(ix) {
     cli_alert_info("Training model for '{ix}'...")
     tic()
-    new_model <- cv.glmnet(
+    new_model <- cv.glmnet_cache(
       data$train$xdata[, data$covariates[[ix]]],
       data$train$ydata,
       penalty = data$penalty[[ix]],
@@ -319,7 +326,7 @@ new_models <- purrr::map(
       foldid = data$train$foldid,
       parallel = params$parallel
     )
-    gc(FALSE)
+    invisible(gc())
     attr(new_model, "alpha") <- params$alpha
     attr(new_model, "penalty") <- data$penalty[[ix]]
     attr(new_model, "covariates") <- data$covariates[[ix]]
@@ -394,7 +401,7 @@ results |>
   dplyr::mutate(label = sprintf("%s\n(p: %.3f, c: %.3f)", label, log_rank_pvalue, c_index)) |>
   ggplot2::ggplot(ggplot2::aes(x = c_index, y = log_rank_pvalue, label = label)) +
   ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray") + 
-  ggplot2::geom_point() +
+  ggplot2::geom_point(color = "purple") +
   ggplot2::xlim(0,1) + 
   ggplot2::ylim(0, 1) +
   ggplot2::xlab("C-Index") +
@@ -403,15 +410,176 @@ results |>
   ggplot2::annotate("text", x = 0, y = 0.045, label = "p-value ≤ 0.05", hjust = 0, vjust = 1, color = "red", alpha = .4) +
   ggplot2::theme_minimal()
 ```
+
+
+```{r}
+results <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    covariates <- attr(fit, "covariates")
+    prob_test <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "response")
+    c_index <- survival::concordance(data$test$ydata ~ prob_test, reverse=TRUE)$concordance
+    
+    risk_scores <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    log_rank_result <- if (length(unique(risk_group)) == 2L) {
+      survival::survdiff(data$test$ydata ~ risk_group) 
+    } else {
+      list(pvalue = 1)
+    }
+    
+    tibble::tibble(model = x, label = attr(fit, "label"), c_index = c_index, log_rank_pvalue = log_rank_result$pvalue)
+  }
+) |> 
+  purrr::list_rbind()
+```
+
+```{r}
+km_result <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    covariates <- attr(fit, "covariates")
+    
+    risk_scores <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    if (length(unique(risk_group)) == 2L) {
+      local_data <- select(data$test$raw, time = "days", status = "vital_status") |> 
+        mutate(risk_group = risk_group)
+      surv_fit <- survival::survfit(survival::Surv(time, status) ~ risk_group, data = local_data)
+      survminer::ggsurvplot(
+        surv_fit, 
+        data = local_data,
+        pval = TRUE,                 # Add log-rank test p-value
+        conf.int = TRUE,             # Add confidence intervals
+        risk.table = TRUE,           # Add risk table below the plot
+        palette = c("#E7B800", "#2E9FDF"), # Customize colors
+        xlab = "Time (days)", 
+        ylab = "Survival Probability",
+        legend.title = "Risk",
+        legend.labs = c("High", "Low"), # Customize legend labels
+        ggtheme = ggplot2::theme_minimal()          # Use a minimal theme
+      )
+    }
+  }
+)
+```
+
+### KM {.tabset}
+
+```{r, results='asis'}
+for (x in names(km_result)) {
+  cat("#### ", x, "\n\n")
+  print(km_result[[x]])
+  cat("\n\n")
+}
 ```
 
 
+## All
+
+```{r}
+data$all <- list(
+  xdata = data$raw |>
+    dplyr::select(-patient, -vital_status, -days) |> 
+    as.matrix(),
+  ydata = data$raw |> 
+    dplyr::select(vital_status, days) |> 
+    (\(x) survival::Surv(x$days, x$vital_status))()  
+)
+```
 
 
+### C-Index
+
+```{r}
+results_all <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    covariates <- attr(fit, "covariates")
+    prob_test <- stats::predict(fit, newx = data$all$xdata[, covariates], s = "lambda.min", type = "response")
+    c_index <- survival::concordance(data$all$ydata ~ prob_test, reverse=TRUE)$concordance
+    
+    risk_scores <- stats::predict(fit, newx = data$all$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    log_rank_result <- if (length(unique(risk_group)) == 2L) {
+      survival::survdiff(data$all$ydata ~ risk_group) 
+    } else {
+      list(pvalue = 1)
+    }
+    
+    tibble::tibble(model = x, label = attr(fit, "label"), c_index = c_index, log_rank_pvalue = log_rank_result$pvalue)
+  }
+) |> 
+  purrr::list_rbind()
+```
+
+```{r}
+results_all
+```
+
+```{r}
+results_all |> 
+  dplyr::mutate(label = sprintf("%s\n(p: %.2g, c: %.3f)", label, log_rank_pvalue, c_index)) |>
+  ggplot2::ggplot(ggplot2::aes(x = c_index, y = log_rank_pvalue, label = label)) +
+  ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray") + 
+  ggplot2::geom_point(color = "purple") +
+  # ggplot2::xlim(0, 1) + 
+  # ggplot2::ylim(0, 1) +
+  ggplot2::xlab("C-Index") +
+  ggplot2::ylab("Log-rank p-value") +
+  ggplot2::geom_hline(yintercept = 0.05, linetype = "dashed", color = "red", alpha = .4) +
+  ggplot2::annotate("text", x = 0, y = 0.045, label = "p-value ≤ 0.05", hjust = 0, vjust = 1, color = "red", alpha = .4) +
+  ggplot2::theme_minimal()
+```
 
 
+```{r}
+km_result_all <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    covariates <- attr(fit, "covariates")
+    
+    risk_scores <- stats::predict(fit, newx = data$all$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    if (length(unique(risk_group)) == 2L) {
+      local_data <- select(data$raw, time = "days", status = "vital_status") |> 
+        mutate(risk_group = risk_group)
+      surv_fit <- survival::survfit(survival::Surv(time, status) ~ risk_group, data = local_data)
+      survminer::ggsurvplot(
+        surv_fit, 
+        data = local_data,
+        pval = TRUE,                 # Add log-rank test p-value
+        conf.int = TRUE,             # Add confidence intervals
+        risk.table = TRUE,           # Add risk table below the plot
+        palette = c("#E7B800", "#2E9FDF"), # Customize colors
+        xlab = "Time (days)", 
+        ylab = "Survival Probability",
+        legend.title = "Risk",
+        legend.labs = c("High", "Low"), # Customize legend labels
+        ggtheme = ggplot2::theme_minimal()          # Use a minimal theme
+      )
+    }
+  }
+)
+```
 
+### KM {.tabset}
 
+```{r, results='asis'}
+for (x in names(km_result_all)) {
+  cat("#### ", x, "\n\n")
+  print(km_result_all[[x]])
+  cat("\n\n")
+}
+```
 
 
 
