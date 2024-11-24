@@ -10,6 +10,30 @@ editor_options:
   chunk_output_type: inline
 ---
 
+```{r init, include=FALSE}
+
+# Trick to store functions in search path, but not enviromnent
+local({
+  env <- new.env()
+  env$fun_source <- function(file_name) {
+    env_name <- sprintf("my_functions:%s", gsub(" ", "_", basename(file_name)))
+    if (env_name %in% search()) {
+      detach(env_name, character.only = TRUE, unload = TRUE)
+    }
+    sys.source(file_name, envir = attach(NULL, name = env_name))
+  }
+  lapply(search()[search() %in% "fun_source"], detach, character.only = TRUE, unload = TRUE)
+  attach(env, name = "fun_source")
+})
+
+# Run garbage colector after each chunk
+knitr::knit_hooks$set(
+  after_chunk = function(options) {
+    invisible(gc())
+  }
+)
+```
+
 # Install packages
 
 ```{r Install_packages, results = 'hide', message=FALSE, warning=FALSE}
@@ -19,14 +43,42 @@ editor_options:
 # Load libraries
 
 ```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
-
-load_libraries <- function(...) {
-  libs <- list(...)
-  lapply(libs, require, character.only = TRUE)
-}
-
-invisible(load_libraries("TCGAbiolinks", "dplyr", "tibble", "tidyverse", "DT", "SummarizedExperiment", "survival", "survminer", "readr", "glmnet", "caret", "openxlsx", "biomaRt", "writexl", "edgeR", "pROC", "caTools", "survivalROC", "risksetROC", "lattice", "survMisc", "SIS", "VennDiagram", "glmSparseNet", "randomForestSRC", "grf", "Boruta", "timeROC", "qvalue", "clusterProfiler", "org.Hs.eg.db", "enrichplot", "pathview", "UpSetR","rsample", "pec"))
-
+# library(TCGAbiolinks)
+library(dplyr)
+library(tibble)
+# library(tidyverse)
+library(DT)
+library(SummarizedExperiment)
+library(survival)
+library(survminer)
+# library(readr)
+library(glmnet)
+library(caret)
+library(openxlsx)
+library(biomaRt)
+library(writexl)
+library(edgeR)
+library(pROC)
+library(caTools)
+library(survivalROC)
+library(risksetROC)
+library(lattice)
+library(survMisc)
+library(SIS)
+library(VennDiagram)
+# library(glmSparseNet)
+library(randomForestSRC)
+library(grf)
+library(Boruta)
+library(timeROC)
+library(qvalue)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(pathview)
+library(UpSetR)
+library(rsample)
+library(pec)
 ```
 
 # Prepare the environment, report chunk status and sessioninfo
@@ -39,25 +91,7 @@ rm(list = ls())
 # Capture the sessionInfo() output and write it to a file
 writeLines(capture.output(sessionInfo()), con = "sessioninfo.txt")
 
-# Delete the file if it exists 
-if (file.exists("chunk_times_log.txt")) {
-  file.remove("chunk_times_log.txt")
-}
-
-
-log_chunk_end_time <- function(chunk_label, log_file = "chunk_times_log.txt") {
-  # Get the current time
-  time_stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-  
-  # Create the log message
-  log_message <- paste0("Chunk '", chunk_label, "' finished at: ", time_stamp, "\n")
-  
-  # Print the log message to console (optional)
-  cat(log_message)
-  
-  # Append the log message to the file
-  cat(log_message, file = log_file, append = TRUE)
-}
+fun_source("Functions/Logger.R")
 
 # write on the chunk end time file
 log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo", log_file = "chunk_times_log.txt")
@@ -66,12 +100,11 @@ log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo
 # Download functions
 
 ```{r Download_functions}
-
 # download the functions
-source("Functions/Data_preparation.R")
-source("Functions/Model_evaluation.R")
-source("Functions/Model_fitting.R")
-source("Functions/Rank_product_test.R")
+fun_source("Functions/Data_preparation.R")
+fun_source("Functions/Model_evaluation.R")
+fun_source("Functions/Model_fitting.R")
+fun_source("Functions/Rank_product_test.R")
 
 # write on the chunk end time file
 log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
@@ -93,20 +126,29 @@ log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
 # Download data
 
 ```{r Download_data, results = 'hide', message=FALSE, warning=FALSE}
+# Cache to use in memoise
+cd <- cachem::cache_disk(here::here(".", "memoise-cache"), max_size = 3 * 1024^3)
 
-query_RNA <- GDCquery(
-  project = c("TCGA-GBM", "TCGA-LGG"),
-  data.category = "Transcriptome Profiling",
-  data.type = "Gene Expression Quantification",
-  workflow.type = "STAR - Counts",
-  experimental.strategy = ("RNA-Seq")
+download_data <- memoise::memoise(
+  function() {
+    query_RNA <- TCGAbiolinks::GDCquery(
+      project = c("TCGA-GBM", "TCGA-LGG"),
+      data.category = "Transcriptome Profiling",
+      data.type = "Gene Expression Quantification",
+      workflow.type = "STAR - Counts",
+      experimental.strategy = ("RNA-Seq")
+    )
+    # Check if files exist before downloading
+    if (!dir.exists("GDCdata")) {
+      TCGAbiolinks::GDCdownload(query = query_RNA)
+    }
+    
+    TCGAbiolinks::GDCprepare(query = query_RNA)  
+  },
+  cache = cd
 )
-# Check if files exist before downloading
-if (!dir.exists("GDCdata")) {
-  GDCdownload(query = query_RNA)
-}
 
-TCGA_RNA <- GDCprepare(query = query_RNA)
+TCGA_RNA <- download_data()
 
 # write on the chunk end time file
 log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
@@ -131,7 +173,7 @@ log_chunk_end_time("Prepare survival data", log_file = "chunk_times_log.txt")
 
 ```{r Assign_new_classification_to_the_data, results = 'hide', message=FALSE, warning=FALSE}
 # new classification -->
-new_classification <- read_csv("SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv") #download the classification datafram
+new_classification <- readr::read_csv("SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv") #download the classification datafram
 names(new_classification)[names(new_classification) == "Patient_ID"] <- "patient" # remane the Patient_ID column
 new_classification <- subset(new_classification, select = -c(TCGA.histological.type, classification.2016)) # delete unnecessary columns
 
@@ -159,6 +201,12 @@ genes_expression <- cleanGeneExpressionData(genes_expression)
 # write on the chunk end time file
 log_chunk_end_time("Select and prepare expression data", log_file = "chunk_times_log.txt")
 ```
+
+```{r clean_up_tgca_rna, include=FALSE}
+rm(TCGA_RNA)
+log_chunk_end_time("Clean-up TGCGA RNA", log_file = "chunk_times_log.txt")
+```
+
 
 # Disease selection and data normalization
 
@@ -261,7 +309,7 @@ rownames(num_coeff_df) <- models_names_list
 
 # Loop through the seeds and run the analysis
 for (i in seq_along(seeds)) {
-  cat("Running analysis for seed:", seeds[i], "\n")
+  logger::log_info("Running analysis for seed: {seeds[i]}")
   
   # Split the data
   set.seed(i)
@@ -297,9 +345,9 @@ for (i in seq_along(seeds)) {
       
       IBS_df[j, i] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test)
         
-      cat("seed: ", seeds[i], "\n",
-          "c_index: ", c_index_df[j, i], "\n", 
-          "IBS: ", IBS_df[j, i], "\n")
+      logger::log_info("seed: ", seeds[i])
+      logger::log_info("c_index: ", c_index_df[j, i])
+      logger::log_info("IBS: ", IBS_df[j, i])
       num_coeff_df[j, i] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
     } else {
 
@@ -341,7 +389,7 @@ log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chu
 best_model_index <- which.max(rowMeans(c_index_df, na.rm = TRUE)) #4
 best_model_name <- rownames(c_index_df)[best_model_index]
 
-cat("Best model:", best_model_name, "\n")
+logger::log_info("Best model:", best_model_name)
 
 # Get the coefficients of the best model
 best_model_coefficients <- models_coefficients_list[[10]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
@@ -436,7 +484,7 @@ title(main= "AUC based on Incident case/dynamic control")
 dev.off() # to save the plot above
 
 # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
-cat("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex, "\n")
+logger::log_info("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex)
 
 #---------------------------- UpSet plot
 
@@ -525,7 +573,7 @@ rownames(num_coeff_df_all_equal) <- models_names_list
 
 # Loop through the seeds and run the analysis
 for (i in seq_along(seeds_all_equal)) {
-  cat("Running analysis for seed:", seeds_all_equal[i], "\n")
+  logger::log_info("Running analysis for seed:", seeds_all_equal[i])
 
   set.seed(i)
   # Split the data
@@ -566,9 +614,9 @@ for (i in seq_along(seeds_all_equal)) {
       
       IBS_df_all_equal[j, i] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test)
         
-      cat("seed: ", seed_all_equals[i], "\n",
-          "c_index: ", c_index_df_all_equal[j, i], "\n", 
-          "IBS: ", IBS_df_all_equal[j, i], "\n")
+      logger::log_info("seed: ", seed_all_equals[i])
+      logger::log_info"c_index: ", c_index_df_all_equal[j, i])
+      logger::log_info"IBS: ", IBS_df_all_equal[j, i])
       num_coeff_df_all_equal[j, i] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
     
     } else {
@@ -613,7 +661,7 @@ log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chun
 best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) #4
 best_model_name_all_equal <- rownames(c_index_df_all_equal)[best_model_index_all_equal]
 
-cat("Best model:", best_model_name_all_equal, "\n")
+logger::log_info("Best model:", best_model_name_all_equal)
 
 # Get the coefficients of the best model
 best_model_coefficients_all_equal <- models_coefficients_list_all_equal[[1]][[best_model_index_all_equal]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
@@ -708,7 +756,7 @@ title(main= "AUC based on Incident case/dynamic control")
 dev.off() # to save the plot above
 
 # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
-cat("Concordance based on Incident Case/Dynamic Control definition:", riskAUC_all_equal$Cindex, "\n")
+logger::log_info("Concordance based on Incident Case/Dynamic Control definition:", riskAUC_all_equal$Cindex)
 
 # #---------------------------- UpSet plot
 # 
@@ -794,14 +842,14 @@ kegg_enrichment <- enrichKEGG(gene         = genes_list$ENTREZID,
 if (nrow(as.data.frame(go_enrichment)) > 0) {
   dotplot(go_enrichment, showCategory = 10)  # Show top 10 GO terms
 } else {
-  cat("No enriched GO terms to plot.", "\n")
+  logger::log_info("No enriched GO terms to plot.")
 }
 
 # Dot plot for GO enrichment results if results are found
 if (nrow(as.data.frame(kegg_enrichment)) > 0) {
   dotplot(kegg_enrichment, showCategory = 10)  # Show top 10 GO terms
 } else {
-  cat("No enriched KEGG terms to plot.", "\n")
+  logger::log_info("No enriched KEGG terms to plot.")
 }
 
 # write on the chunk end time file
