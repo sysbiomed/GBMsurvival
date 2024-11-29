@@ -280,7 +280,7 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 ```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("Cox", "SIS", "ISIS", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox")
+models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") #"SIS", "ISIS", 
 
 best_alpha <- 1
 n_seeds <- 10
@@ -294,17 +294,17 @@ models_coefficients_list <- list()
 # Create an empty dataframe to store C-index values
 num_models <- length(models_names_list) # Assuming each iteration has the same number of models
 c_index_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(c_index_df) <- paste0("Seed_", seeds)
+colnames(c_index_df) <- paste("Seed_", seeds)
 rownames(c_index_df) <- models_names_list
 
 # Create an empty dataframe to store Integrated Brier Score (IBS)
 IBS_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(IBS_df) <- paste0("Seed_", seeds)
+colnames(IBS_df) <- paste("Seed_", seeds)
 rownames(IBS_df) <- models_names_list
 
 # Create an empty dataframe to store the number of coefficients
 num_coeff_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(num_coeff_df) <- paste0("Seed_", seeds)
+colnames(num_coeff_df) <- paste("Seed_", seeds)
 rownames(num_coeff_df) <- models_names_list
 
 # Loop through the seeds and run the analysis
@@ -325,7 +325,6 @@ for (i in seq_along(seeds)) {
 
   # reduce the genes expression data frame to only the colunmns of interest
   genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
-  print(ncol(genes_expression_train))
 
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
@@ -392,14 +391,14 @@ best_model_name <- rownames(c_index_df)[best_model_index]
 logger::log_info("Best model:", best_model_name)
 
 # Get the coefficients of the best model
-best_model_coefficients <- models_coefficients_list[[10]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
+best_model_coefficients <- models_coefficients_list[[2]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
 # Get information on the coefficients of the best model
 gene_info_result <- getGenesInfo(best_model_coefficients)
 print(gene_info_result)
 
 # Split the data
-set.seed(10)
+set.seed(2)
 splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
 
 genes_expression_train <- splited$expression_train
@@ -469,9 +468,8 @@ Cumulative_ROC
 Incident_ROC <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC")
 Incident_ROC
 
-
 #Risk AUC based on Incident case/dynamic control
-pdf("Results/riskAUC.pdf", width = 6, height = 4) # to save the plot below
+plot.new()
 riskAUC = risksetAUC(Stime=survival_test$days/365.25,
                      status = survival_test$vital_status,
                      marker = survival_probabilities_test,
@@ -481,7 +479,12 @@ riskAUC = risksetAUC(Stime=survival_test$days/365.25,
                      plot = TRUE,
                      xlab = "Time (years)")
 title(main= "AUC based on Incident case/dynamic control")
-dev.off() # to save the plot above
+recorded_plot <- recordPlot()  # Store the plot
+
+# Save to PDF
+pdf("Results/riskAUC.pdf", width = 6, height = 4)
+replayPlot(recorded_plot)
+dev.off()
 
 # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
 logger::log_info("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex)
@@ -491,7 +494,7 @@ logger::log_info("Concordance based on Incident Case/Dynamic Control definition:
 # Do an UpSet plot its like a veen diagram but for higher ammount of groups
 genes_list <- list()
 for (i in 1:n_seeds) {
-  genes_list[[paste0("Seed: ", i)]] <- models_coefficients_list[[i]][[best_model_index]]$ensembl_gene_id
+  genes_list[[paste("Seed: ", i)]] <- models_coefficients_list[[i]][[best_model_index]]$ensembl_gene_id
 }
 
 # Create an UpSet plot
@@ -544,7 +547,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 ```{r Fit_and_Explore_the_Models_equal, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("Cox", "SIS", "ISIS", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox")
+models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") # "SIS", "ISIS"
 
 best_alpha <- 1
 n_seeds_all_equal <- 1
@@ -558,17 +561,17 @@ models_coefficients_list_all_equal <- list()
 # Create an empty dataframe to store C-index values
 num_models_all_equal <- length(models_names_list) # Assuming each iteration has the same number of models
 c_index_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(c_index_df_all_equal) <- paste0("Seed_", seeds_all_equal)
+colnames(c_index_df_all_equal) <- paste("Seed_", seeds_all_equal)
 rownames(c_index_df_all_equal) <- models_names_list
 
 # Create an empty dataframe to store Integrated Brier Score (IBS)
 IBS_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(IBS_df) <- paste0("Seed_", seeds_all_equal)
+colnames(IBS_df) <- paste("Seed_", seeds_all_equal)
 rownames(IBS_df) <- models_names_list
 
 # Create an empty dataframe to store the number of coefficients
 num_coeff_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(num_coeff_df_all_equal) <- paste0("Seed_", seeds_all_equal)
+colnames(num_coeff_df_all_equal) <- paste("Seed_", seeds_all_equal)
 rownames(num_coeff_df_all_equal) <- models_names_list
 
 # Loop through the seeds and run the analysis
@@ -594,7 +597,6 @@ for (i in seq_along(seeds_all_equal)) {
 
   # reduce the genes expression data frame to only the colunmns of interest
   genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
-  print(ncol(genes_expression_train))
   
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
@@ -614,9 +616,9 @@ for (i in seq_along(seeds_all_equal)) {
       
       IBS_df_all_equal[j, i] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test)
         
-      logger::log_info("seed: ", seed_all_equals[i])
-      logger::log_info"c_index: ", c_index_df_all_equal[j, i])
-      logger::log_info"IBS: ", IBS_df_all_equal[j, i])
+      logger::log_info("seed: ", seeds_all_equal[i])
+      logger::log_info("c_index: ", c_index_df_all_equal[j, i])
+      logger::log_info("IBS: ", IBS_df_all_equal[j, i])
       num_coeff_df_all_equal[j, i] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
     
     } else {
@@ -653,6 +655,7 @@ print(summary_table_all_equal)
 # write on the chunk end time file
 log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chunk_times_log.txt")
 ```
+
 
 # Analyse the best model (train = test)
 
@@ -741,9 +744,8 @@ Cumulative_ROC_all_equal
 Incident_ROC_all_equal <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC")
 Incident_ROC_all_equal
 
-
 #Risk AUC based on Incident case/dynamic control
-pdf("Results/riskAUC_all_equal.pdf", width = 6, height = 4) # to save the plot below
+plot.new()
 riskAUC_all_equal = risksetAUC(Stime=survival_test$days/365.25,
                      status = survival_test$vital_status,
                      marker = survival_probabilities_test,
@@ -753,6 +755,11 @@ riskAUC_all_equal = risksetAUC(Stime=survival_test$days/365.25,
                      plot = TRUE,
                      xlab = "Time (years)")
 title(main= "AUC based on Incident case/dynamic control")
+recorded_plot <- recordPlot()  # Store the plot
+
+# Save to PDF
+pdf("Results/riskAUC_all_equal.pdf", width = 6, height = 4) # to save the plot below
+replayPlot(recorded_plot)
 dev.off() # to save the plot above
 
 # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC)
@@ -763,7 +770,7 @@ logger::log_info("Concordance based on Incident Case/Dynamic Control definition:
 # # Do an UpSet plot its like a veen diagram but for higher ammount of groups
 # genes_list_all_equal <- list()
 # for (i in 1:n_seeds_all_equal) {
-#   genes_list_all_equal[[paste0("Seed: ", i)]] <- models_coefficients_list_all_equal[[i]][[best_model_index_all_equal]]$ensembl_gene_id
+#   genes_list_all_equal[[paste("Seed: ", i)]] <- models_coefficients_list_all_equal[[i]][[best_model_index_all_equal]]$ensembl_gene_id
 # }
 # 
 # # Create an UpSet plot
@@ -949,12 +956,12 @@ log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt")
 <!-- # Create an empty dataframe to store C-index values -->
 <!-- num_models <- length(models_names_list) # Assuming each iteration has the same number of models -->
 <!-- c_index_df_without_outliers <- data.frame(matrix(ncol = length(seeds), nrow = num_models)) -->
-<!-- colnames(c_index_df_without_outliers) <- paste0("Seed_", seeds) -->
+<!-- colnames(c_index_df_without_outliers) <- paste("Seed_", seeds) -->
 <!-- rownames(c_index_df_without_outliers) <- models_names_list -->
 
 <!-- # Create an empty dataframe to store the number of coefficients -->
 <!-- num_coeff_df_without_outliers <- data.frame(matrix(ncol = length(seeds), nrow = num_models)) -->
-<!-- colnames(num_coeff_df_without_outliers) <- paste0("Seed_", seeds) -->
+<!-- colnames(num_coeff_df_without_outliers) <- paste("Seed_", seeds) -->
 <!-- rownames(num_coeff_df_without_outliers) <- models_names_list -->
 
 
