@@ -291,26 +291,11 @@ seeds <- seq(1, n_seeds, by = 1)
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list <- list()
 
-# Create an empty dataframe to store C-index values
-num_models <- length(models_names_list) # Assuming each iteration has the same number of models
-c_index_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(c_index_df) <- paste("Seed_", seeds)
-rownames(c_index_df) <- models_names_list
-
-# Create an empty dataframe to store p-value
-p_value_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(p_value_df ) <- paste("Seed_", seeds)
-rownames(p_value_df ) <- models_names_list
-
-# Create an empty dataframe to store Integrated Brier Score (IBS)
-IBS_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(IBS_df) <- paste("Seed_", seeds)
-rownames(IBS_df) <- models_names_list
-
-# Create an empty dataframe to store the number of coefficients
-num_coeff_df <- data.frame(matrix(ncol = length(seeds), nrow = num_models))
-colnames(num_coeff_df) <- paste("Seed_", seeds)
-rownames(num_coeff_df) <- models_names_list
+# Create an empty dataframes to store the evaluation metrics values
+c_index_df <- create_metrics_dataframes(seeds, models_names_list)
+p_value_df <- create_metrics_dataframes(seeds, models_names_list)
+IBS_df <- create_metrics_dataframes(seeds, models_names_list)
+num_coeff_df <- create_metrics_dataframes(seeds, models_names_list)
 
 # Loop through the seeds and run the analysis
 for (i in seeds) {
@@ -577,26 +562,11 @@ seeds_all_equal <- seq(1, n_seeds_all_equal, by = 1)
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list_all_equal <- list()
 
-# Create an empty dataframe to store C-index values
-num_models_all_equal <- length(models_names_list) # Assuming each iteration has the same number of models
-c_index_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(c_index_df_all_equal) <- paste("Seed_", seeds_all_equal)
-rownames(c_index_df_all_equal) <- models_names_list
-
-# Create an empty dataframe to store C-index values
-p_value_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(p_value_df_all_equal) <- paste("Seed_", seeds_all_equal)
-rownames(p_value_df_all_equal) <- models_names_list
-
-# Create an empty dataframe to store Integrated Brier Score (IBS)
-IBS_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(IBS_df) <- paste("Seed_", seeds_all_equal)
-rownames(IBS_df) <- models_names_list
-
-# Create an empty dataframe to store the number of coefficients
-num_coeff_df_all_equal <- data.frame(matrix(ncol = length(seeds_all_equal), nrow = num_models_all_equal))
-colnames(num_coeff_df_all_equal) <- paste("Seed_", seeds_all_equal)
-rownames(num_coeff_df_all_equal) <- models_names_list
+# Create an empty dataframe to store the evaluation metrics values
+c_index_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list)
+p_value_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list)
+IBS_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list)
+num_coeff_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list)
 
 # Loop through the seeds and run the analysis
 for (i in seeds) {

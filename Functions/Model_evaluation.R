@@ -303,4 +303,14 @@ get_gene_counts_with_names <- function(genes_list) {
   return(df_genes_in_multiple_seeds)
 }
 
+# Function that creates and initializes the dataframes for the evaluation metrics
+create_metrics_dataframes <- function(seeds, models_names_list) {
+
+  df <- data.frame(matrix(ncol = length(seeds), nrow = length(models_names_list)))
+  colnames(df) <- paste("Seed_", seeds, sep = "")
+  rownames(df) <- models_names_list
+
+  return(df)
+}
+
 
