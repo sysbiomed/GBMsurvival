@@ -1,0 +1,56 @@
+
+
+processing file: Code_16.Rmd
+  |                  |          |   0%  |                  |          |   3%                                                                |                  |.         |   6% [init]                                                         |                  |.         |   8%                                                                |                  |.         |  11% [Install_packages]                                             |                  |.         |  14%                                                                |                  |..        |  17% [Load_libraries]                                               |                  |..        |  19%                                                                |                  |..        |  22% [Prepare_the_environment_report_chunk_status_and_sessioninfo]CHUNK Prepare the environment, report chunk status and sessioninfo (646.2 MB) [finished at: 2024-12-04 15:24:41]
+  |                  |..        |  25%                                                                |                  |...       |  28% [Download_functions]                                         CHUNK Download functions (646.4 MB) [finished at: 2024-12-04 15:24:42]
+  |                  |...       |  31%                                                                |                  |...       |  33% [Folder_to_store_results]                                    CHUNK Folder to store results (646.4 MB) [finished at: 2024-12-04 15:24:43]
+  |                  |....      |  36%                                                                |                  |....      |  39% [Download_data]                                              CHUNK Download data (2152.2 MB) [finished at: 2024-12-04 15:25:00]
+  |                  |....      |  42%                                                                |                  |....      |  44% [Prepare_survival_data]                                      CHUNK Prepare survival data (2153.9 MB) [finished at: 2024-12-04 15:25:01]
+  |                  |.....     |  47%                                                                |                  |.....     |  50% [Assign_new_classification_to_the_data]                      CHUNK Assign a new classification to the data (2158.6 MB) [finished at: 2024-12-04 15:25:03]
+  |                  |.....     |  53%                                                                |                  |......    |  56% [Select_and_prepare_expression_data]                         CHUNK Select and prepare expression data (2210.0 MB) [finished at: 2024-12-04 15:25:08]
+  |                  |......    |  58%                                                                |                  |......    |  61% [clean_up_tgca_rna]                                          CHUNK Clean-up TGCGA RNA (708.7 MB) [finished at: 2024-12-04 15:25:09]
+  |                  |......    |  64%                                                                |                  |.......   |  67% [Disease_selection_and_data_normalization]                   CHUNK Disease selection and data normalization (711.4 MB) [finished at: 2024-12-04 15:25:19]
+  |                  |.......   |  69%                                                                |                  |.......   |  72% [Fit_and_Explore_the_Models_different]                       INFO [2024-12-04 15:25:20] Running analysis for seed: 1
+INFO [2024-12-04 15:39:51] seed: 1
+INFO [2024-12-04 15:39:51] c_index: 0.502408809359945
+INFO [2024-12-04 15:39:51] p_value: 0.854170269582283
+INFO [2024-12-04 15:39:51] IBS: 0.134954179209465
+INFO [2024-12-04 15:39:51] seed: 1
+INFO [2024-12-04 15:39:51] c_index: 0.489332415691672
+INFO [2024-12-04 15:39:51] p_value: 0.86351571287651
+INFO [2024-12-04 15:39:51] IBS: 0.134695972173992
+INFO [2024-12-04 15:39:52] seed: 1
+INFO [2024-12-04 15:39:52] c_index: 0.474191328286304
+INFO [2024-12-04 15:39:52] p_value: 0.9084422368338
+INFO [2024-12-04 15:39:52] IBS: 0.126283054113081
+INFO [2024-12-04 15:39:52] seed: 1
+INFO [2024-12-04 15:39:52] c_index: 0.500344115622849
+INFO [2024-12-04 15:39:52] p_value: 0.858488409521005
+INFO [2024-12-04 15:39:52] IBS: 0.143808036451296
+INFO [2024-12-04 15:39:52] Running analysis for seed: 2
+INFO [2024-12-04 15:53:02] seed: 2
+INFO [2024-12-04 15:53:02] c_index: 0.628131021194605
+INFO [2024-12-04 15:53:02] p_value: 0.240618134582484
+INFO [2024-12-04 15:53:02] IBS: 0.141729576182326
+INFO [2024-12-04 15:53:03] seed: 2
+INFO [2024-12-04 15:53:03] c_index: 0.624919717405267
+INFO [2024-12-04 15:53:03] p_value: 0.0754215398561915
+INFO [2024-12-04 15:53:03] IBS: 0.142778013000853
+INFO [2024-12-04 15:53:03] seed: 2
+INFO [2024-12-04 15:53:03] c_index: 0.576107899807322
+INFO [2024-12-04 15:53:03] p_value: 0.483167183892635
+INFO [2024-12-04 15:53:03] IBS: 0.145709391677152
+INFO [2024-12-04 15:53:03] seed: 2
+INFO [2024-12-04 15:53:03] c_index: 0.581245985870263
+INFO [2024-12-04 15:53:03] p_value: 0.702717016368867
+INFO [2024-12-04 15:53:03] IBS: 0.144814105910619
+INFO [2024-12-04 15:53:03] Running analysis for seed: 3
+INFO [2024-12-04 16:04:50] seed: 3
+INFO [2024-12-04 16:04:50] c_index: 0.6159809183065
+INFO [2024-12-04 16:04:50] p_value: 0.0768548725448363
+INFO [2024-12-04 16:04:50] IBS: 0.124906163989963
+INFO [2024-12-04 16:04:50] seed: 3
+INFO [2024-12-04 16:04:50] c_index: 0.59391771019678
+INFO [2024-12-04 16:04:50] p_value: 0.27614599868612
+INFO [2024-12-04 16:04:50] IBS: 0.131902041004609
+INFO [2024-12-04 16:04:50] Running analysis for seed: 4

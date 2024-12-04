@@ -140,7 +140,7 @@ orderDataByPatient <- function(data) {
 
 ## Split the data in train and test
 
-splitTestAndTrain <- function(expression, survival, percentage) {
+splitTestAndTrain <- function(expression, survival, percentage, seed_split) {
 
   merged_data <- merge(survival, expression, by = "patient")
 
@@ -159,6 +159,7 @@ splitTestAndTrain <- function(expression, survival, percentage) {
   # expression_test <- test_data %>% dplyr::select(-vital_status, -days)
 
   # Use the `vital_status` as the strata variable for stratified sampling
+  set.seed(seed_split)
   split <- initial_split(merged_data, prop = percentage, strata = "vital_status")
 
   # Extract train and test sets from the split

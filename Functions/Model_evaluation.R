@@ -1,6 +1,6 @@
 # Function to calculate the C-index
 
-calculate_c_index <- function(survival_object_train, genes_expression_train, models_coefficients, genes_expression_test, survival_test, survival_data) {
+calculate_c_index_p_value <- function(survival_object_train, genes_expression_train, models_coefficients, genes_expression_test, survival_test, survival_data) {
 
   # Fit a Cox regression model using the covariates
   fit <- coxph(survival_object_train ~ .,
@@ -13,8 +13,17 @@ calculate_c_index <- function(survival_object_train, genes_expression_train, mod
 
   c_index <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test, reverse=TRUE)$concordance
 
+  # Categorize individuals of the test data based on the median of the train data
+  survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = models_coefficients$ensembl_gene_id), type ="lp")
+  risk <- ifelse(survival_probabilities_test > median(survival_probabilities_train), "High", "Low")
+
+  # P-value da Kaplan-Meier com a separação por High/ Low
+  p_value <- survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk)$pvalue
+
+  result <- list(c_index = c_index, p_value = p_value)
+
   # Return the list of C-index values
-  return(c_index)
+  return(result)
 }
 
 
@@ -37,14 +46,16 @@ calculate_integrated_brier_score <- function(survival_object_train, genes_expres
   ibs_result <- pec(object = list("Cox" = fit),
                     formula = Surv(days, vital_status) ~ 1,
                     data = genes_expression_test,
-                    times = seq(0, max(survival_test$days), by = 1), # time points for evaluation
-                    exact = TRUE)
+                    times = sort(unique(survival_test$days)), # time points for evaluation
+                    start = min(survival_test$days),
+                    maxtime = max(survival_test$days))
 
   # Extract the Integrated Brier Score
   ibs <- crps(ibs_result)[2]
 
   return(ibs)
 }
+
 
 # Function to calculate Mean Reciprocal Rank (MRR) for each model
 calculate_MRR <- function(metric_df, higher_is_better = TRUE) { #TRUE for C-index, FALSE for IBS
