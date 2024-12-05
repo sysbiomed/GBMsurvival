@@ -277,8 +277,8 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 
 # Fit and Explore the Models (train != test)
 
-```{r Fit_and_Explore_the_Models_different, warning=FALSE}
-#message=FALSE, 
+```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
+
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") #"SIS", "ISIS", 
 
@@ -297,6 +297,34 @@ p_value_df <- create_metrics_dataframes(seeds, models_names_list)
 IBS_df <- create_metrics_dataframes(seeds, models_names_list)
 num_coeff_df <- create_metrics_dataframes(seeds, models_names_list)
 
+# Memoised function to compute significant variable names
+compute_significant_variable_names <- memoise::memoise(
+  function(seeds, genes_expression, survival_data) {
+    significant_variable_names <- list()
+    
+    for (i in seeds) {
+      logger::log_info("Running univariate cox for seed: {i}")
+      
+      # Split the data
+      splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, i)
+      
+      genes_expression_train <- splited$expression_train
+      survival_train <- splited$survival_train
+      genes_expression_test <- splited$expression_test
+      survival_test <- splited$survival_test
+      
+      # Run univariate Cox regression for each variable
+      significant_variable_names[[i]] <- univariate_cox(survival_train, genes_expression_train, 0.05) # old 0.05
+    }
+    
+    return(significant_variable_names)
+  },
+  cache = cd
+)
+
+# Call the memoised function
+significant_variable_names <- compute_significant_variable_names(seeds, genes_expression, survival_data)
+
 # Loop through the seeds and run the analysis
 for (i in seeds) {
   logger::log_info("Running analysis for seed: {i}")
@@ -309,11 +337,8 @@ for (i in seeds) {
   genes_expression_test <- splited$expression_test
   survival_test <- splited$survival_test
   
-  # Run univariate Cox regression for each variable
-  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #old 0.05
-  
   # reduce the genes expression data frame to only the colunmns of interest
-  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names[[i]])]
   
   # Define survival object
   survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
@@ -392,14 +417,14 @@ best_model_name <- rownames(p_value_df)[best_model_index]
 logger::log_info("Best model:", best_model_name)
 
 # Get the coefficients of the best model
-best_model_coefficients <- models_coefficients_list[[5]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
+best_model_coefficients <- models_coefficients_list[[2]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
 # Get information on the coefficients of the best model
-# gene_info_result <- getGenesInfo(best_model_coefficients)
-# print(gene_info_result)
+gene_info_result <- getGenesInfo(best_model_coefficients)
+print(gene_info_result)
 
 # Split the data
-splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, 5) # <- colocar o seed
+splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, 2) # <- colocar o seed
 
 genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
@@ -422,6 +447,7 @@ print(Propo_hazards$table)
 
 # Construct a risk score based on the linear predictor on the test data
 survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id), type = "lp")
+survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp")
 
 
 # Visualize the distribution of the risk predictor
@@ -436,7 +462,7 @@ plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities_t
 plot_distribution
 
 # Categorize individuals of the test data based on the median
-risk <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low")
+risk <- ifelse(survival_probabilities_test > median(survival_probabilities_train), "High", "Low")
 
 # Kaplan-Meier com a separação por High/ Low
 fit_surv <- survfit(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk)
@@ -522,7 +548,7 @@ print(df_genes_in_multiple_seeds) # Display the data frame
 write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
 
 # Save a predictors genes and coefficients as a CSV file
-#write.csv(gene_info_result, file = "Results/predictors_genes_and_coefficients", row.names = FALSE)
+write.csv(gene_info_result, file = "Results/predictors_genes_and_coefficients", row.names = FALSE)
 
 # Write the captured output to a file
 writeLines(survdiff_output, "Results/survdiff_output.txt")
@@ -606,7 +632,7 @@ for (i in seeds) {
     
     if (num_coeff_df_all_equal[j, a] > 0) {
       
-      c_index_p_value_all_equal <- calculate_c_index(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test, survival_data)
+      c_index_p_value_all_equal <- calculate_c_index_p_value(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test, survival_data)
       
       c_index_df_all_equal[j, a] <- c_index_p_value_all_equal$c_index
       
@@ -663,8 +689,9 @@ log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chun
 
 ```{r Analyse_the_best_model_equal, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
-best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) #4
-best_model_name_all_equal <- rownames(c_index_df_all_equal)[best_model_index_all_equal]
+#best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) #4
+best_model_index_all_equal <- which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) #4
+best_model_name_all_equal <- rownames(p_value_df_all_equal)[best_model_index_all_equal]
 
 logger::log_info("Best model:", best_model_name_all_equal)
 
@@ -677,7 +704,7 @@ print(gene_info_result_all_equal)
 
 # Split the data
 set.seed(1)
-splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
+#splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
 
 genes_expression_train <- genes_expression
 survival_train <- survival_data

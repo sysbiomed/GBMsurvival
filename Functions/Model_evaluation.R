@@ -10,11 +10,11 @@ calculate_c_index_p_value <- function(survival_object_train, genes_expression_tr
 
   # Construct a risk score based on the linear predictor on the test data
   survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = models_coefficients$ensembl_gene_id), type ="lp")
+  survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = models_coefficients$ensembl_gene_id), type ="lp")
 
   c_index <- concordance(Surv(survival_test$days, survival_test$vital_status) ~ survival_probabilities_test, reverse=TRUE)$concordance
 
   # Categorize individuals of the test data based on the median of the train data
-  survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = models_coefficients$ensembl_gene_id), type ="lp")
   risk <- ifelse(survival_probabilities_test > median(survival_probabilities_train), "High", "Low")
 
   # P-value da Kaplan-Meier com a separação por High/ Low
@@ -92,7 +92,8 @@ getGenesInfo <- function(coefficients) {
   coefficients$ensembl_gene_id <- sub("\\..*", "", coefficients$ensembl_gene_id)
 
   # Connect to the Ensembl database
-  ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", mirror = "www")
+  # <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", mirror = "www")
+  ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", version = 112)
   # Get information about the genes
   gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", "description"),
                      filters = "ensembl_gene_id",
