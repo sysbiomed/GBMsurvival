@@ -282,7 +282,7 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") #"SIS", "ISIS", 
 
-best_alpha <- 1
+best_alpha <- 0
 n_seeds <- 10
 
 # Define the seeds for the iterations
@@ -417,14 +417,14 @@ best_model_name <- rownames(p_value_df)[best_model_index]
 logger::log_info("Best model:", best_model_name)
 
 # Get the coefficients of the best model
-best_model_coefficients <- models_coefficients_list[[2]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
+best_model_coefficients <- models_coefficients_list[[5]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
 # Get information on the coefficients of the best model
 gene_info_result <- getGenesInfo(best_model_coefficients)
 print(gene_info_result)
 
 # Split the data
-splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, 2) # <- colocar o seed
+splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, 5) # <- colocar o seed
 
 genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
@@ -579,11 +579,11 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") # "SIS", "ISIS"
 
-best_alpha <- 1
+best_alpha <- 0
 n_seeds_all_equal <- 1
 
 # Define the seeds for the iterations
-seeds_all_equal <- seq(1, n_seeds_all_equal, by = 1)
+seeds_all_equal <- 1
 
 # Initialize a list to store the coefficients for each iteration
 models_coefficients_list_all_equal <- list()
@@ -595,66 +595,56 @@ IBS_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list
 num_coeff_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list)
 
 # Loop through the seeds and run the analysis
-for (i in seeds) {
-  logger::log_info("Running analysis for seed:", seeds_all_equal[i])
+i <- seeds_all_equal
+logger::log_info("Running analysis for seed:", seeds_all_equal[i])
 
-  set.seed(i)
-  # Split the data
-  #splited <- splitTestAndTrain(genes_expression, survival_data, 0.7)
+genes_expression_train <- genes_expression
+survival_train <- survival_data
+genes_expression_test <- genes_expression
+survival_test <- survival_data
   
-  # genes_expression_train <- splited$expression_train
-  # survival_train <- splited$survival_train
-  # genes_expression_test <- splited$expression_test
-  # survival_test <- splited$survival_test
-  
-  genes_expression_train <- genes_expression
-  survival_train <- survival_data
-  genes_expression_test <- genes_expression
-  survival_test <- survival_data
-  
-  # Run univariate Cox regression for each variable
-  significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #old 0.05
+# Run univariate Cox regression for each variable
+significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #old 0.05
 
-  # reduce the genes expression data frame to only the colunmns of interest
-  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
+# reduce the genes expression data frame to only the colunmns of interest
+genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)]
   
-  # Define survival object
-  survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
+# Define survival object
+survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
   
-  # Fit models
-  models_coefficients_list_all_equal[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
+# Fit models
+models_coefficients_list_all_equal[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
   
-  # Calculate and store C-index for each model
-  a <- which(seeds == i)
-  for (j in seq_along(models_coefficients_list_all_equal[[i]])) {
+# Calculate and store C-index for each model
+a <- which(seeds == i)
+for (j in seq_along(models_coefficients_list_all_equal[[i]])) {
     
-    num_coeff_df_all_equal[j, a] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
+ num_coeff_df_all_equal[j, a] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
     
-    if (num_coeff_df_all_equal[j, a] > 0) {
+ if (num_coeff_df_all_equal[j, a] > 0) {
       
-      c_index_p_value_all_equal <- calculate_c_index_p_value(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test, survival_data)
+  c_index_p_value_all_equal <- calculate_c_index_p_value(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test, survival_data)
       
-      c_index_df_all_equal[j, a] <- c_index_p_value_all_equal$c_index
+  c_index_df_all_equal[j, a] <- c_index_p_value_all_equal$c_index
       
-      p_value_df_all_equal[j, a] <- c_index_p_value_all_equal$p_value
+  p_value_df_all_equal[j, a] <- c_index_p_value_all_equal$p_value
       
-      IBS_df_all_equal[j, a] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test)
+  IBS_df_all_equal[j, a] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test)
         
-      logger::log_info("seed: ", seeds_all_equal[i])
-      logger::log_info("c_index: ", c_index_df_all_equal[j, a])
-      logger::log_info("p_value: ", p_value_df_all_equal[j, a])
-      logger::log_info("IBS: ", IBS_df_all_equal[j, a])
-      num_coeff_df_all_equal[j, a] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
+  logger::log_info("seed: ", seeds_all_equal[i])
+  logger::log_info("c_index: ", c_index_df_all_equal[j, a])
+  logger::log_info("p_value: ", p_value_df_all_equal[j, a])
+  logger::log_info("IBS: ", IBS_df_all_equal[j, a])
+  num_coeff_df_all_equal[j, a] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id)
     
     } else {
       
-      # If the model has empty coefficients, set C-index to NA 
-      c_index_df_all_equal[j, a] <- NA
-      p_value_df_all_equal[j, a] <- NA
-      IBS_df_all_equal[j, a] <- NA
-           }
-    }
-}
+    # If the model has empty coefficients, set C-index to NA 
+    c_index_df_all_equal[j, a] <- NA
+    p_value_df_all_equal[j, a] <- NA
+    IBS_df_all_equal[j, a] <- NA
+         }
+  }
 
 
 MRR_C_Index_all_equal <- calculate_MRR(c_index_df_all_equal, higher_is_better = TRUE)
