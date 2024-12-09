@@ -1,7 +1,0 @@
-"","C_Index_Avg","C_Index_Std_Dev","Coeff_Num_Avg","Coeff_Num_Std_Dev","Non_Convergence_Perc"
-"GLMNET",0.598,0.069,24.1,15.4,0
-"SIS",0.592,0.033,7.7,8.7,40
-"ISIS",0.603,0.048,14.4,3.5,0
-"RandomForest+GLMNET",0.606,0.044,30.2,9.6,0
-"CausalForest+GLMNET",0.603,0.04,21.4,11.7,20
-"Boruta+GLMNET",0.606,0.036,17.1,7.2,0

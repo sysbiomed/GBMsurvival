@@ -1,8 +1,0 @@
-Call:
-survdiff(formula = Surv(days, vital_status) ~ group, data = combined_survival_data)
-
-                         N Observed Expected (O-E)^2/E (O-E)^2/V
-group=With Outliers    213      161      161  1.04e-05  2.16e-05
-group=Without Outliers 201      158      158  1.06e-05  2.16e-05
-
- Chisq= 0  on 1 degrees of freedom, p= 1 
