@@ -282,8 +282,8 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") #"SIS", "ISIS", 
 
-best_alpha <- 0
-n_seeds <- 10
+best_alpha <- 1
+n_seeds <- 2
 
 # Define the seeds for the iterations
 seeds <- seq(1, n_seeds, by = 1)
@@ -579,7 +579,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") # "SIS", "ISIS"
 
-best_alpha <- 0
+best_alpha <- 1
 n_seeds_all_equal <- 1
 
 # Define the seeds for the iterations

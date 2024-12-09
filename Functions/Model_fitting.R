@@ -245,7 +245,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
                      data = data_randomforest, seed = -123)
 
   # Extract feature importance from the causal forest
-  importance_rsf <- vimp(rsf_model)$importance
+  importance_rsf <- vimp(rsf_model, seed = -123)$importance
 
   # Select the top features based on importance
   top_features_indices_rsf <- order(importance_rsf, decreasing = TRUE)[1:100]
