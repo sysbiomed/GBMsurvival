@@ -92,7 +92,7 @@ getGenesInfo <- function(coefficients) {
   coefficients$ensembl_gene_id <- sub("\\..*", "", coefficients$ensembl_gene_id)
 
   # Connect to the Ensembl database
-  # <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", mirror = "www")
+  #ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", mirror = "www")
   ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", version = 112)
   # Get information about the genes
   gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", "description"),
