@@ -1,0 +1,370 @@
+---
+title: "Glioma biomarkers to distinguish high-risk from low-risk patients"
+author: "Beatriz N. Leitão, André Veríssimo, Alexandra M. Carvalho and Susana Vinga"
+date: "November, 2024"
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r init, include=FALSE}
+
+# Trick to store functions in search path, but not enviromnent
+local({
+  env <- new.env()
+  env$fun_source <- function(file_name) {
+    env_name <- sprintf("my_functions:%s", gsub(" ", "_", basename(file_name)))
+    if (env_name %in% search()) {
+      detach(env_name, character.only = TRUE, unload = TRUE)
+    }
+    sys.source(file_name, envir = attach(NULL, name = env_name))
+  }
+  lapply(search()[search() %in% "fun_source"], detach, character.only = TRUE, unload = TRUE)
+  attach(env, name = "fun_source")
+})
+
+# Run garbage colector after each chunk
+knitr::knit_hooks$set(
+  after_chunk = function(options) {
+    invisible(gc())
+  }
+)
+```
+
+# Install packages
+
+```{r Install_packages, results = 'hide', message=FALSE, warning=FALSE}
+#renv::restore()
+```
+
+# Load libraries
+
+```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
+# library(TCGAbiolinks)
+library(dplyr)
+library(tibble)
+# library(tidyverse)
+library(DT)
+library(SummarizedExperiment)
+library(survival)
+library(survminer)
+# library(readr)
+library(glmnet)
+library(caret)
+library(openxlsx)
+library(biomaRt)
+library(writexl)
+library(edgeR)
+library(pROC)
+library(caTools)
+library(survivalROC)
+library(risksetROC)
+library(lattice)
+library(survMisc)
+library(SIS)
+library(VennDiagram)
+# library(glmSparseNet)
+library(randomForestSRC)
+library(grf)
+library(Boruta)
+library(timeROC)
+library(qvalue)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(pathview)
+library(UpSetR)
+library(rsample)
+library(pec)
+```
+
+# Prepare the environment, report chunk status and sessioninfo
+
+```{r Prepare_the_environment_report_chunk_status_and_sessioninfo}
+
+# clean current environment
+rm(list = ls())
+
+# Capture the sessionInfo() output and write it to a file
+writeLines(capture.output(sessionInfo()), con = "sessioninfo.txt")
+
+fun_source("Functions/Logger.R")
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo", log_file = "chunk_times_log.txt")
+```
+
+# Download functions
+
+```{r Download_functions}
+# download the functions
+fun_source("Functions/Data_preparation.R")
+fun_source("Functions/Model_evaluation.R")
+fun_source("Functions/Model_fitting.R")
+fun_source("Functions/Rank_product_test.R")
+
+# write on the chunk end time file
+log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
+```
+
+# Folder to store results
+
+```{r Folder_to_store_results}
+
+# Ensure the 'Results' directory exists
+if (!dir.exists("Results")) {
+  dir.create("Results")
+}
+
+# write on the chunk end time file
+log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
+```
+
+# Download data
+
+```{r Download_data, results = 'hide', message=FALSE, warning=FALSE}
+# Cache to use in memoise
+cd <- cachem::cache_disk(here::here(".", "memoise-cache"), max_size = 3 * 1024^3)
+
+download_data <- memoise::memoise(
+  function() {
+    query_RNA <- TCGAbiolinks::GDCquery(
+      project = c("TCGA-GBM", "TCGA-LGG"),
+      data.category = "Transcriptome Profiling",
+      data.type = "Gene Expression Quantification",
+      workflow.type = "STAR - Counts",
+      experimental.strategy = ("RNA-Seq")
+    )
+    # Check if files exist before downloading
+    if (!dir.exists("GDCdata")) {
+      TCGAbiolinks::GDCdownload(query = query_RNA)
+    }
+    
+    TCGAbiolinks::GDCprepare(query = query_RNA)  
+  },
+  cache = cd
+)
+
+TCGA_RNA <- download_data()
+
+# write on the chunk end time file
+log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
+```
+
+# Prepare survival data
+
+```{r Prepare_survival_data}
+# Extract survival data of interest
+columns_to_extract <- c("patient", "project_id", "vital_status", "days_to_death", "days_to_last_follow_up")
+survival_data <- createSurvivalDataFrame(columns_to_extract, TCGA_RNA)
+
+
+# Clean and prepare survival data
+survival_data <- cleanSurvivalData(survival_data)
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare survival data", log_file = "chunk_times_log.txt")
+```
+
+# Assign a new classification to the data
+
+```{r Assign_new_classification_to_the_data, results = 'hide', message=FALSE, warning=FALSE}
+# new classification -->
+new_classification <- readr::read_csv("SIMPLIFIED_CLASSIFICATION_TCGA_2016_2021.csv") #download the classification datafram
+names(new_classification)[names(new_classification) == "Patient_ID"] <- "patient" # remane the Patient_ID column
+new_classification <- subset(new_classification, select = -c(TCGA.histological.type, classification.2016)) # delete unnecessary columns
+
+# Merge the dataframes to add the disease information keeping only common patients
+survival_data <- merge(survival_data, new_classification, by = "patient")
+survival_data <- subset(survival_data, select = -project_id) # remove old classification
+names(survival_data)[names(survival_data) == "classification.2021"] <- "project_id" # aplly the old name to the new classification
+
+
+# write on the chunk end time file
+log_chunk_end_time("Assign a new classification to the data", log_file = "chunk_times_log.txt")
+```
+
+# Select and prepare expression data
+
+```{r Select_and_prepare_expression_data}
+# Extrair dataframe com a expressão dos genes de interesse
+genes_expression <- createGeneExpressionDataframe("protein_coding", "unstranded", TCGA_RNA, survival_data)
+#genes_expression <- createGeneExpressionDataframe("lncRNA", "unstranded", TCGA_RNA, survival_data)
+#genes_expression <- createGeneExpressionDataframe("miRNA", "unstranded", TCGA_RNA, survival_data)       #<------------ indicar os dados 
+
+# Clean the gene expression dataframe
+genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# write on the chunk end time file
+log_chunk_end_time("Select and prepare expression data", log_file = "chunk_times_log.txt")
+```
+
+```{r clean_up_tgca_rna, include=FALSE}
+rm(TCGA_RNA)
+log_chunk_end_time("Clean-up TGCGA RNA", log_file = "chunk_times_log.txt")
+```
+
+
+# Disease selection and data normalization
+
+```{r Disease_selection_and_data_normalization}
+
+#------------ OLD CLASSIFICATION-------------------------------------------------
+
+# selecionar apenas os dados da doença de interesse
+#data <- selectDataPerDisease("TCGA-GBM", genes_expression, survival_data)
+#data <- selectDataPerDisease("TCGA-LGG", genes_expression, survival_data)                                   
+
+#------------ NEW CLASSIFICATION-------------------------------------------------
+
+#data <- selectDataPerDisease("astrocytoma", genes_expression, survival_data)
+data <- selectDataPerDisease("glioblastoma", genes_expression, survival_data)
+#data <- selectDataPerDisease("oligodendroglioma", genes_expression, survival_data)
+
+genes_expression <- data$genes_expression
+survival_data <- data$survival_data
+
+# remove genes where the sum of the gene expression is 0 (necessary to repeat this step, since there is a selection of patients) 
+genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# EdgeR+voom normalization
+genes_expression <- normalizationEdgeR(genes_expression)
+
+# Clean the gene expression dataframe
+genes_expression <- cleanGeneExpressionData(genes_expression)
+
+# ordenar os dados por paciente
+genes_expression <- orderDataByPatient(genes_expression)
+survival_data <- orderDataByPatient(survival_data)
+
+# write on the chunk end time file
+log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
+```
+
+# Fit and Explore the Models (train != test)
+
+```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
+
+# Define the range of best_alpha values
+best_alpha_values <- c(0, 0.5, 1)
+
+# Define thresholds and seeds
+#thresholds_list <- c(100, 159)
+#thresholds_list <- c(100, 300, 500, 600)
+#thresholds_list <- c(0.0001, 0.0005, 0.001, 0.005, 0.01)
+thresholds_list <- c(TRUE, FALSE)
+n_seeds <- 10
+seeds <- seq(1, n_seeds, by = 1)
+
+# Initialize a list to store results for each best_alpha
+c_index_results <- list()
+
+# Memoised function to compute significant variable names
+compute_significant_variable_names <- memoise::memoise(
+  function(seeds, genes_expression, survival_data) {
+    significant_variable_names <- list()
+    
+    for (i in seeds) {
+      logger::log_info("Running univariate cox for seed: {i}")
+      
+      # Split the data
+      splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, i)
+      
+      genes_expression_train <- splited$expression_train
+      survival_train <- splited$survival_train
+      genes_expression_test <- splited$expression_test
+      survival_test <- splited$survival_test
+      
+      # Run univariate Cox regression for each variable
+      significant_variable_names[[i]] <- univariate_cox(survival_train, genes_expression_train, 0.05) # old 0.05
+    }
+    
+    return(significant_variable_names)
+  },
+  cache = cd
+)
+
+# Call the memoised function
+significant_variable_names <- compute_significant_variable_names(seeds, genes_expression, survival_data)
+
+# Loop over best_alpha values
+for (alpha in best_alpha_values) {
+  logger::log_info("Running analysis for best_alpha: {alpha}")
+  
+  # Create dataframes to store metrics for this alpha
+  c_index_df <- create_metrics_dataframes(seeds, as.character(thresholds_list))
+  
+  for (i in seeds) {
+    logger::log_info("Running analysis for seed: {i} and best_alpha: {alpha}")
+    
+    # Split the data
+    splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, i)
+    genes_expression_train <- splited$expression_train
+    survival_train <- splited$survival_train
+    genes_expression_test <- splited$expression_test
+    survival_test <- splited$survival_test
+    
+    # Reduce the genes expression data frame
+    genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names[[i]])]
+    
+    # Define survival object
+    survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
+    
+    # Fit models for this alpha
+    models_coefficients <- fit_Boruta(genes_expression_train, survival_object_train, alpha, survival_train, thresholds_list)
+    
+    a <- which(seeds == i)
+    for (j in as.character(thresholds_list)) {
+      if (length(models_coefficients[[j]]$ensembl_gene_id) > 0) {
+        c_index_df[j, a] <- calculate_c_index_p_value(survival_object_train, genes_expression_train, models_coefficients[[j]],genes_expression_test, survival_test, survival_data)$c_index
+      } else {
+        c_index_df[j, a] <- NA
+      }
+    }
+  }
+  
+  # Store results for this alpha
+  c_index_results[[as.character(alpha)]] <- apply(c_index_df, 1, mean, na.rm = TRUE)
+}
+
+# Prepare data for plotting
+plot_data <- data.frame()
+
+# Create a combined data frame for plotting
+plot_data <- data.frame()
+
+for (alpha in best_alpha_values) {
+  alpha_results <- c_index_results[[as.character(alpha)]]
+  plot_data <- rbind(
+    plot_data,
+    data.frame(
+      Threshold = thresholds_list,
+      C_Index = alpha_results,
+      Alpha = as.factor(alpha)
+    )
+  )
+}
+
+
+library(ggplot2)
+
+plot_all <- ggplot(plot_data, aes(x = Threshold, y = C_Index, color = Alpha, group = Alpha)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "C-Index vs Thresholds for Different Alpha Values",
+    x = "Threshold value",
+    y = "C-Index average",
+    color = "Alpha"
+  ) +
+  theme_minimal()
+
+ggsave(filename = "Results/plot_thresholds.pdf", plot = plot_all, width = 6, height = 4)
+# write on the chunk end time file
+
+log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chunk_times_log.txt")
+
+```
