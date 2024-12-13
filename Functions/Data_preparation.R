@@ -1,3 +1,8 @@
+box::use(
+  dplyr[`%>%`],
+  rsample[training, testing, initial_split]
+)
+
 ## Prepare survival data
 
 # Extract survival data of interest
