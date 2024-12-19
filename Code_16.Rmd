@@ -280,7 +280,7 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 ```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") #"SIS", "ISIS", 
+models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") #"SIS", "ISIS", "CausalForest+Cox",
 
 best_alpha <- 1
 n_seeds <- 2
@@ -378,8 +378,8 @@ for (i in seeds) {
     }
 }
 
-MRR_C_Index <- calculate_MRR(c_index_df, higher_is_better = TRUE)
-MRR_IBS <- calculate_MRR(IBS_df, higher_is_better = FALSE)
+#MRR_C_Index <- calculate_MRR(c_index_df, higher_is_better = TRUE)
+#MRR_IBS <- calculate_MRR(IBS_df, higher_is_better = FALSE)
 
 # Create a summary table
 summary_table <- data.frame(
@@ -387,10 +387,10 @@ summary_table <- data.frame(
   C_Index_Std_Dev = round(apply(c_index_df, 1, sd, na.rm = TRUE), 3),
   P_value_Avg = round(apply(p_value_df, 1, mean, na.rm = TRUE), 3),
   P_value_Std_Dev = round(apply(p_value_df, 1, sd, na.rm = TRUE), 3),
-  MRR_C_Index = MRR_C_Index$MRR,
+  #MRR_C_Index = MRR_C_Index$MRR,
   IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
   IBS_Std_Dev = round(apply(IBS_df, 1, sd, na.rm = TRUE), 3),
-  MRR_IBS = MRR_IBS$MRR,
+  #MRR_IBS = MRR_IBS$MRR,
   Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
   Coeff_Num_Std_Dev = round(apply(num_coeff_df, 1, sd), 1),
   Non_Convergence_Perc = apply(num_coeff_df, 1, function(x) mean(x == 0) * 100)
@@ -403,28 +403,35 @@ print(summary_table)
 #Save a p-value as a CSV file
 write.csv(p_value_df, file = "Results/p_value_df.csv", row.names = TRUE)
 
+#Save a p-value as a CSV file
+write.csv(c_index_df, file = "Results/c_index_df.csv", row.names = TRUE)
+
 # write on the chunk end time file
 log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chunk_times_log.txt")
+
 ```
 # Analyse the best model (train != test)
 
 ```{r Analyse_the_best_model_different, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
-best_model_index <- which.min(rowMeans(p_value_df, na.rm = TRUE)) #4
-#best_model_index <- which.max(rowMeans(c_index_df, na.rm = TRUE)) #4
-best_model_name <- rownames(p_value_df)[best_model_index]
+#best_model_index <- which.min(rowMeans(p_value_df, na.rm = TRUE)) 
+best_model_index <- which.max(rowMeans(c_index_df, na.rm = TRUE)) 
+best_model_name <- rownames(c_index_df)[best_model_index]
 
 logger::log_info("Best model:", best_model_name)
+cat("Best model:", best_model_name)
+
+seeddd <- 1 # 5 boruta, 8 RSF
 
 # Get the coefficients of the best model
-best_model_coefficients <- models_coefficients_list[[5]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
+best_model_coefficients <- models_coefficients_list[[seeddd]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
 # Get information on the coefficients of the best model
-gene_info_result <- getGenesInfo(best_model_coefficients)
-print(gene_info_result)
+# gene_info_result <- getGenesInfo(best_model_coefficients)
+# print(gene_info_result)
 
 # Split the data
-splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, 5) # <- colocar o seed
+splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, seeddd) # <- colocar o seed
 
 genes_expression_train <- splited$expression_train
 survival_train <- splited$survival_train
@@ -441,9 +448,9 @@ fit <- coxph(survival_object_train ~ .,
              iter.max = 0) # force the software to keep those values
 
 # Test the proportional hazards assumption for a Cox regression model fit (coxph)
-Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
-Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
-print(Propo_hazards$table)
+#Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
+#Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
+#print(Propo_hazards$table)
 
 # Construct a risk score based on the linear predictor on the test data
 survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id), type = "lp")
@@ -524,20 +531,17 @@ for (i in 1:n_seeds) {
 }
 
 # Create an UpSet plot
-upset_plot <- upset(fromList(genes_list),nsets = n_seeds, order.by = "degree")
-
+upset_plot <- UpSetR::upset(fromList(genes_list),nsets = n_seeds,
+                    order.by = "degree", mb.ratio = c(0.5,0.50))
 plot.new()
 upset_plot
-# Add a white rectangle behind the title
-grid.rect(x = 0.5, y = 0.95, width = 0.8, height = 0.1, gp = gpar(fill = "white", col = NA))
-# Add a title using grid.text()
-grid.text("Genes Selected Across 10 Different Seeds", x = 0.5, y = 0.95, gp = gpar(fontsize = 16, fontface = "bold", fill = "white"))
 recorded_plot <- recordPlot()  # Store the plot
 
 # save the plot
-pdf("Results/upset_plot.pdf", width = 6, height = 5, onefile=FALSE) # Create a PDF file to save the plot
+pdf("Results/upset_plot.pdf", width = 8, height = 3) # Create a PDF file to save the plot
 replayPlot(recorded_plot)
 dev.off() # to save the plot above
+replayPlot(recorded_plot)
 
 #---------------------------- Make a table with the genes that are in more than 1 seed
 
@@ -545,10 +549,10 @@ df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
 print(df_genes_in_multiple_seeds) # Display the data frame
 
 # Save a predictors genes and coefficients as a CSV file
-write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
+#write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
 
 # Save a predictors genes and coefficients as a CSV file
-write.csv(gene_info_result, file = "Results/predictors_genes_and_coefficients", row.names = FALSE)
+# write.csv(gene_info_result, file = "Results/predictors_genes_and_coefficients", row.names = FALSE)
 
 # Write the captured output to a file
 writeLines(survdiff_output, "Results/survdiff_output.txt")
@@ -577,7 +581,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 ```{r Fit_and_Explore_the_Models_equal, message=FALSE, warning=FALSE}
 
 # Models' names
-models_names_list <- c("Cox", "RandomForest+Cox", "CausalForest+Cox", "Boruta+Cox") # "SIS", "ISIS"
+models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") # "CausalForest+Cox", "SIS", "ISIS"
 
 best_alpha <- 1
 n_seeds_all_equal <- 1
@@ -647,19 +651,15 @@ for (j in seq_along(models_coefficients_list_all_equal[[i]])) {
   }
 
 
-MRR_C_Index_all_equal <- calculate_MRR(c_index_df_all_equal, higher_is_better = TRUE)
-MRR_IBS_all_equal <- calculate_MRR(IBS_df_all_equal, higher_is_better = FALSE)
 
 # Create a summary table
 summary_table_all_equal <- data.frame(
   C_Index_Avg = round(apply(c_index_df_all_equal, 1, mean, na.rm = TRUE), 3),
   C_Index_Std_Dev = round(apply(c_index_df_all_equal, 1, sd, na.rm = TRUE), 3),
-  MRR_C_Index = MRR_C_Index_all_equal$MRR,
   P_value_Avg = round(apply(p_value_df_all_equal, 1, mean, na.rm = TRUE), 3),
   P_value_Std_Dev = round(apply(p_value_df_all_equal, 1, sd, na.rm = TRUE), 3),
-  IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
-  IBS_Std_Dev = round(apply(IBS_df, 1, sd, na.rm = TRUE), 3),
-  MRR_IBS = MRR_IBS_all_equal$MRR,
+  IBS_Avg = round(apply(IBS_df_all_equal, 1, mean, na.rm = TRUE), 3),
+  IBS_Std_Dev = round(apply(IBS_df_all_equal, 1, sd, na.rm = TRUE), 3),
   Coeff_Num_Avg = round(apply(num_coeff_df_all_equal, 1, mean), 1),
   Coeff_Num_Std_Dev = round(apply(num_coeff_df_all_equal, 1, sd), 1),
   Non_Convergence_Perc = apply(num_coeff_df_all_equal, 1, function(x) mean(x == 0) * 100)
@@ -679,18 +679,19 @@ log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chun
 
 ```{r Analyse_the_best_model_equal, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
-#best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) #4
-best_model_index_all_equal <- which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) #4
+#best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) 
+best_model_index_all_equal <- which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
 best_model_name_all_equal <- rownames(p_value_df_all_equal)[best_model_index_all_equal]
 
 logger::log_info("Best model:", best_model_name_all_equal)
+cat("Best model:", best_model_name_all_equal)
 
 # Get the coefficients of the best model
 best_model_coefficients_all_equal <- models_coefficients_list_all_equal[[1]][[best_model_index_all_equal]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance
 
 # Get information on the coefficients of the best model
-gene_info_result_all_equal <- getGenesInfo(best_model_coefficients_all_equal)
-print(gene_info_result_all_equal)
+# gene_info_result_all_equal <- getGenesInfo(best_model_coefficients_all_equal)
+# print(gene_info_result_all_equal)
 
 # Split the data
 set.seed(1)
@@ -711,9 +712,9 @@ fit <- coxph(survival_object_train ~ .,
              iter.max = 0) # force the software to keep those values
 
 # Test the proportional hazards assumption for a Cox regression model fit (coxph)
-Propo_hazards_all_equal <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
-Propo_hazards_global_p_value_all_equal <- Propo_hazards_all_equal$table["GLOBAL", "p"]
-print(Propo_hazards_all_equal$table)
+#Propo_hazards_all_equal <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
+#Propo_hazards_global_p_value_all_equal <- Propo_hazards_all_equal$table["GLOBAL", "p"]
+#print(Propo_hazards_all_equal$table)
 
 # Construct a risk score based on the linear predictor on the test data
 survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients_all_equal$ensembl_gene_id), type = "lp") 
@@ -811,10 +812,10 @@ logger::log_info("Concordance based on Incident Case/Dynamic Control definition:
 
 
 # Save a predictors genes and coefficients as a CSV file
-write.csv(Propo_hazards_all_equal$table, file = "Results/Propo_hazards_all_equal", row.names = TRUE)
+#write.csv(Propo_hazards_all_equal$table, file = "Results/Propo_hazards_all_equal", row.names = TRUE)
 
-# Save a predictors genes and coefficients as a CSV file
-write.csv(gene_info_result_all_equal, file = "Results/predictors_genes_and_coefficients_all_equal", row.names = FALSE)
+# # Save a predictors genes and coefficients as a CSV file
+# write.csv(gene_info_result_all_equal, file = "Results/predictors_genes_and_coefficients_all_equal", row.names = FALSE)
 
 # Write the captured output to a file
 writeLines(survdiff_output_all_equal, "Results/survdiff_output_all_equal.txt")
@@ -842,40 +843,53 @@ log_chunk_end_time("Analyse the best model (train = test)", log_file = "chunk_ti
 
 ```{r Enrichment_Analysis, warning=FALSE}
 
+#print(best_model_coefficients_all_equal)
+
+# Extract ensembl_gene_id from the first entries of each sublist
+#ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
+
+# Combine all the IDs into a single vector
+#ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
+
+                                  
+# Remove the version of the gene from its name(everything after the dot including the dot)
+genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
+#genesss <- sub("\\..*", "", ensembl_ids_combined)
+
 # Convert Ensembl IDs to Entrez IDs
-genes_list <- bitr(gene_info_result$ensembl_gene_id,
+genes_list <- bitr(genesss,
                     fromType = "ENSEMBL",  # Input type is Ensembl Gene IDs
                     toType = "ENTREZID",   # Convert to Entrez Gene IDs
                     OrgDb = org.Hs.eg.db)  # Database for human genes
 
 # GO Enrichment Analysis
 go_enrichment <- enrichGO(gene          = genes_list$ENTREZID,
-                          OrgDb         = org.Hs.eg.db,
-                          keyType       = "ENTREZID",  # The type of gene identifier
-                          ont           = "ALL",      # "BP", "MF", "CC", or "ALL" for all three
-                          pAdjustMethod = "BH",       # Adjust p-values using Benjamini-Hochberg
-                          pvalueCutoff  = 0.05,       # p-value threshold
-                          qvalueCutoff  = 0.02)        # q-value (FDR) threshold
+                          OrgDb         = org.Hs.eg.db)#,
+                          #keyType       = "ENTREZID",  # The type of gene identifier
+                          #ont           = "ALL",      # "BP", "MF", "CC", or "ALL" for all three
+                          #pAdjustMethod = "BH",       # Adjust p-values using Benjamini-Hochberg
+                          #pvalueCutoff  = 0.05,       # p-value threshold
+                          #qvalueCutoff  = 0.02)        # q-value (FDR) threshold
 
 
 # KEGG Pathway Enrichment Analysis
 kegg_enrichment <- enrichKEGG(gene         = genes_list$ENTREZID,
-                              organism     = 'hsa',        # "hsa" for human genes
-                              pvalueCutoff = 0.05)
+                              organism     = 'hsa')        # "hsa" for human genes
+                              #pvalueCutoff = 0.05)
 
 
 # Dot plot for GO enrichment results if results are found
 if (nrow(as.data.frame(go_enrichment)) > 0) {
   dotplot(go_enrichment, showCategory = 10)  # Show top 10 GO terms
 } else {
-  logger::log_info("No enriched GO terms to plot.")
+  cat("No enriched GO terms to plot.")
 }
 
 # Dot plot for GO enrichment results if results are found
 if (nrow(as.data.frame(kegg_enrichment)) > 0) {
   dotplot(kegg_enrichment, showCategory = 10)  # Show top 10 GO terms
 } else {
-  logger::log_info("No enriched KEGG terms to plot.")
+  cat("No enriched KEGG terms to plot.")
 }
 
 # write on the chunk end time file
