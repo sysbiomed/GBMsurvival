@@ -414,7 +414,7 @@ fit_models <- function(genes_expression_train, survival_object, best_alpha, surv
   set.seed(1012) # For reproducibility
   boruta_output <- Boruta(survival_object ~ .,
                           data = as.data.frame(prepareDataForCoxRegression(genes_expression_train)),
-                          doTrace = 2))
+                          doTrace = 2)
 
 # Get the significant features
 significant_features <- getSelectedAttributes(boruta_output,
@@ -433,7 +433,7 @@ Boruta_Coefficients <- extractCoxRegressionCoefficients(fit_boruta_model)
 
 
 
-models_coefficients <- list(Boruta_Coefficients) #Cox_Coefficients, RandomForest_Coefficients, Boruta_Coefficients) #SIS_Coefficients, ISIS_Coefficients, CausalForest_Coefficients,
+models_coefficients <- list(Cox_Coefficients, RandomForest_Coefficients, Boruta_Coefficients) #SIS_Coefficients, ISIS_Coefficients, CausalForest_Coefficients,
 
 # Return the dataframe and the fitted models
 return(models_coefficients)
