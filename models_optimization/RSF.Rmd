@@ -347,18 +347,37 @@ for (alpha in best_alpha_values) {
 }
 
 
+# library(ggplot2)
+# 
+# plot_all <- ggplot(plot_data, aes(x = Threshold, y = C_Index, color = Alpha, group = Alpha)) +
+#   geom_line(size = 1) +
+#   geom_point(size = 2) +
+#   labs(
+#     title = "C-Index vs Thresholds for Different Alpha Values",
+#     x = "Threshold value",
+#     y = "C-Index average",
+#     color = "Alpha"
+#   ) +
+#   theme_minimal()
+
+
+
 library(ggplot2)
 
 plot_all <- ggplot(plot_data, aes(x = Threshold, y = C_Index, color = Alpha, group = Alpha)) +
   geom_line(size = 1) +
-  geom_point(size = 2) +
+  geom_point(size = 2, aes(shape = Alpha)) +
   labs(
     title = "C-Index vs Thresholds for Different Alpha Values",
     x = "Threshold value",
     y = "C-Index average",
-    color = "Alpha"
+    color = "Alpha",
+    shape = "Alpha"
   ) +
   theme_minimal()
+
+
+
 
 ggsave(filename = "Results/plot_thresholds.pdf", plot = plot_all, width = 6, height = 4)
 # write on the chunk end time file
