@@ -282,8 +282,8 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") #"SIS", "ISIS", "CausalForest+Cox",
 
-best_alpha <- 1
-n_seeds <- 2
+best_alpha <- 0
+n_seeds <- 10
 
 # Define the seeds for the iterations
 seeds <- seq(1, n_seeds, by = 1)
@@ -415,7 +415,7 @@ log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chu
 ```{r Analyse_the_best_model_different, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 #best_model_index <- which.min(rowMeans(p_value_df, na.rm = TRUE)) 
-best_model_index <- which.max(rowMeans(c_index_df, na.rm = TRUE)) 
+best_model_index <- 2#which.max(rowMeans(c_index_df, na.rm = TRUE)) 
 best_model_name <- rownames(c_index_df)[best_model_index]
 
 logger::log_info("Best model:", best_model_name)
@@ -583,7 +583,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") # "CausalForest+Cox", "SIS", "ISIS"
 
-best_alpha <- 1
+best_alpha <- 0
 n_seeds_all_equal <- 1
 
 # Define the seeds for the iterations
@@ -680,7 +680,7 @@ log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chun
 ```{r Analyse_the_best_model_equal, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 #best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) 
-best_model_index_all_equal <- which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
+best_model_index_all_equal <- 2#which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
 best_model_name_all_equal <- rownames(p_value_df_all_equal)[best_model_index_all_equal]
 
 logger::log_info("Best model:", best_model_name_all_equal)
@@ -746,6 +746,22 @@ plot_all_equal <- ggsurvplot(fit_surv,
                    legend.title = "Group",
                    pval = TRUE)
 plot_all_equal$plot
+
+# Extract median survival time for each group
+median_survival <- data.frame(
+  group = names(fit_surv$strata),  # Group names
+  median_survival_time = sapply(1:length(fit_surv$strata), function(i) {
+    surv_summary <- summary(fit_surv, times = fit_surv$time)
+    if (!is.na(surv_summary$table[i, "median"])) {
+      surv_summary$table[i, "median"]  # Median survival time
+    } else {
+      NA  # If no median is found
+    }
+  })
+)
+
+# View the median survival times
+print(median_survival)
 
 
 #---------------------------- AUC
@@ -846,15 +862,15 @@ log_chunk_end_time("Analyse the best model (train = test)", log_file = "chunk_ti
 #print(best_model_coefficients_all_equal)
 
 # Extract ensembl_gene_id from the first entries of each sublist
-#ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
+ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
 
 # Combine all the IDs into a single vector
-#ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
+ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
 
                                   
 # Remove the version of the gene from its name(everything after the dot including the dot)
-genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
-#genesss <- sub("\\..*", "", ensembl_ids_combined)
+#genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
+genesss <- sub("\\..*", "", ensembl_ids_combined)
 
 # Convert Ensembl IDs to Entrez IDs
 genes_list <- bitr(genesss,
