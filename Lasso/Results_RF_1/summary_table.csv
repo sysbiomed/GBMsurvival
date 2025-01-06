@@ -1,4 +1,0 @@
-"","C_Index_Avg","C_Index_Std_Dev","P_value_Avg","P_value_Std_Dev","IBS_Avg","IBS_Std_Dev","Coeff_Num_Avg","Coeff_Num_Std_Dev","Non_Convergence_Perc"
-"Cox",0.548,0.057,0.393,0.243,0.13,0.015,10.2,9.1,30
-"RandomForest+Cox",0.568,0.056,0.327,0.248,0.131,0.016,12.5,4.6,0
-"Boruta+Cox",0.578,0.055,0.383,0.389,0.129,0.017,7.4,2.9,0
