@@ -1,0 +1,9 @@
+Call:
+survdiff(formula = Surv(survival_test$days/365.25, survival_test$vital_status) ~ 
+    risk)
+
+           N Observed Expected (O-E)^2/E (O-E)^2/V
+risk=High 37       32     23.8      2.87      5.86
+risk=Low  28       17     25.2      2.70      5.86
+
+ Chisq= 5.9  on 1 degrees of freedom, p= 0.02 

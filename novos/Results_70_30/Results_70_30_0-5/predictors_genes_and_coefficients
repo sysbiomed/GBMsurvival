@@ -1,0 +1,7 @@
+"ensembl_gene_id","Coef_value","external_gene_name","description"
+"ENSG00000185640",0.450279812470409,"KRT79","keratin 79 [Source:HGNC Symbol;Acc:HGNC:28930]"
+"ENSG00000159110",0.211895362789571,"IFNAR2","interferon alpha and beta receptor subunit 2 [Source:HGNC Symbol;Acc:HGNC:5433]"
+"ENSG00000167779",0.00483653599703477,"IGFBP6","insulin like growth factor binding protein 6 [Source:HGNC Symbol;Acc:HGNC:5475]"
+"ENSG00000177565",-0.00278666452924685,"TBL1XR1","TBL1X/Y related 1 [Source:HGNC Symbol;Acc:HGNC:29529]"
+"ENSG00000162706",0.00192384087432642,"CADM3","cell adhesion molecule 3 [Source:HGNC Symbol;Acc:HGNC:17601]"
+"ENSG00000137770",-0.000330446650991838,"CTDSPL2","CTD small phosphatase like 2 [Source:HGNC Symbol;Acc:HGNC:26936]"
