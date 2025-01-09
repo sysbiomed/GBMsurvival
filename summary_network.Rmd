@@ -3,7 +3,7 @@ title: "Network Summary"
 output: html_document
 date: "2024-12-13"
 params:
-  hash_id: "h8e4929"
+  hash_id: "hcae30e"
 ---
 
 ```{r setup, include=FALSE}
@@ -11,10 +11,11 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r, include=FALSE, eval=FALSE}
-c(
-  "hd6357a", "hcae30e", "hedcaec", "h71ce61", "h25d2db", "h17dd08", "h9ea317",
-  "h5acfdb", "h3ff426", "h8e4929"
-) |>
+# c(
+#   "hd6357a", "hcae30e", "hedcaec", "h71ce61", "h25d2db", "h17dd08", "h9ea317",
+#   "h5acfdb", "h3ff426", "h8e4929"
+# ) |>
+c("hcae30e", "h17dd08") |> #, "h8e4929") |>
   purrr::iwalk(\(x, ix) {
     e <- new.env()
     load(
@@ -37,11 +38,15 @@ c(
     
     suffix <- paste(sort(names(local_params)), local_params[sort(names(local_params))], collapse = "_") |> 
       stringr::str_replace_all(" ", "_")
-    file_name <- here::here("Results", "summary_reports", glue::glue("summary_{suffix}.html"))
+    file_name <- here::here("Results", "summary_reports", glue::glue("summary_{suffix}.md"))
     
     dir.create(dirname(file_name), showWarnings = FALSE)
-    
-    rmarkdown::render("summary_network.Rmd", output_file = file_name, params = list(hash_id = x))
+  
+    rmarkdown::render(
+      "summary_network.Rmd", 
+      output_file = file_name,
+      params = list(hash_id = x)
+    )
   })
 
 ```
@@ -65,21 +70,22 @@ raw_results <- list.files(
     dplyr::select(-model)
 }) |> 
   purrr::list_rbind() |> 
-  tidyr::pivot_longer(c(c_index, log_rank_pvalue, ibs), names_to = "metric")
+  tidyr::pivot_longer(c(c_index, log_rank_pvalue, ibs, nzeros), names_to = "metric")
 
 loaded_results <- raw_results |> 
   dplyr::filter(!is.na(value))
 
 # -----------------------------------------------------------------------------
 summary_results <- loaded_results |> 
-  dplyr::filter(!is.na(value)) |> 
+  # dplyr::filter(!is.na(value)) |> 
   dplyr::group_by(label, metric) |> 
   dplyr::summarize(
-    min = min(value),
-    max = max(value),
-    mean = mean(value),
-    sd = sd(value),
-    median = median(value),
+    min = min(value, na.rm = TRUE),
+    max = max(value, na.rm = TRUE),
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    convergence = sum(!is.na(value)),
     .groups = "drop"
   ) |> 
   dplyr::arrange(metric)
@@ -144,6 +150,11 @@ DT::datatable(summary_results)
 
 ### Plots {.tabset .tabset-fade}
 
+```{r}
+loaded_results <- loaded_results |> dplyr::filter(metric != "nzeros")
+```
+
+
 ```{r plot, echo=FALSE, results='asis'}
 loaded_results |>
   dplyr::group_by(metric) |>
@@ -183,3 +194,80 @@ loaded_results |>
     cat("\n\n")
   })
 ```
+
+### Selected
+
+```{r, echo=FALSE}
+coef_raw_results <- list.files(
+  here::here("Results", "network_table"),
+  params$hash_id,
+  full.names = TRUE
+) |> purrr::map(\(.x) {
+  e <- new.env()
+  load(.x, envir = e, verbose = FALSE)
+  Reduce(
+    \(.u, .y) {
+      dplyr::bind_rows(
+        .u,
+        tibble::tibble(
+          coef_name = e$coefs[[.y]],
+          origin = .y,
+          count = 1
+        )
+      )
+    },
+    x = names(e$coefs),
+    init = tibble::tibble()
+  )
+}) |>
+  dplyr::bind_rows() |>
+  dplyr::group_by(coef_name, origin) |>
+  dplyr::summarise(count = sum(count), .groups = "keep")
+
+coef_results <- coef_raw_results |> 
+  tidyr::pivot_wider(
+    values_from = "count",
+    names_from = "origin",
+    values_fill = 0
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(subtotal = sum(dplyr::c_across(!tidyselect::last_col()))) |>
+  dplyr::arrange(dplyr::desc(subtotal)) |>
+  dplyr::select(-subtotal)
+```
+
+### Coeficients {.tabset .tabset-fade}
+
+#### Summary
+
+```{r, results='asis', echo=FALSE}
+print(knitr::kable(coef_results))
+```
+
+```{r, results='asis', echo=FALSE}
+coef_results |> 
+  dplyr::ungroup() |>
+  dplyr::select(-coef_name) |> 
+  colnames() |>
+  purrr::walk(\(.x) {
+    cat("####", .x, "\n\n")
+    cat("```\n")
+
+    cat(
+      paste0(
+        "c(",
+        paste(
+          "\"",
+          sort(coef_results$coef_name[coef_results[[.x]] > 0]),
+          "\"",
+          collapse = ", ",
+          sep = ""
+        ),
+        ")\n"
+      )
+    )
+    cat("```\n\n")    
+  })
+
+```
+
