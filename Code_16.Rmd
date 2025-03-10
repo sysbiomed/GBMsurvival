@@ -104,7 +104,6 @@ log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo
 fun_source("Functions/Data_preparation.R")
 fun_source("Functions/Model_evaluation.R")
 fun_source("Functions/Model_fitting.R")
-fun_source("Functions/Rank_product_test.R")
 
 # write on the chunk end time file
 log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
