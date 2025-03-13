@@ -43,7 +43,7 @@ knitr::knit_hooks$set(
 # Load libraries
 
 ```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
-# library(TCGAbiolinks)
+library(TCGAbiolinks)
 library(dplyr)
 library(tibble)
 # library(tidyverse)
@@ -141,13 +141,35 @@ download_data <- memoise::memoise(
     if (!dir.exists("GDCdata")) {
       TCGAbiolinks::GDCdownload(query = query_RNA)
     }
-    
-    TCGAbiolinks::GDCprepare(query = query_RNA)  
+
+    TCGAbiolinks::GDCprepare(query = query_RNA)
   },
   cache = cd
 )
 
 TCGA_RNA <- download_data()
+
+# query_RNA <- TCGAbiolinks::GDCquery(
+#   project = c("TCGA-GBM", "TCGA-LGG"),
+#   data.category = "Transcriptome Profiling",
+#   data.type = "Gene Expression Quantification",
+#   workflow.type = "STAR - Counts",
+#   experimental.strategy = "RNA-Seq"
+# )
+# 
+# if (!dir.exists("GDCdata")) {  
+#   TCGAbiolinks::GDCdownload(query = query_RNA)  
+# }
+# 
+# download_data <- memoise::memoise(
+#   function() {
+#     TCGAbiolinks::GDCprepare(query = query_RNA)  # ✅ This is the only step cached
+#   },
+#   cache = cd  # ✅ Persistent caching
+# )
+# 
+# TCGA_RNA <- download_data()
+
 
 # write on the chunk end time file
 log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")

@@ -17,7 +17,6 @@ By systematically evaluating these methodologies, this project aims to improve t
 
     -   `Code_16.Rmd`: The main R Markdown file containing the entire analysis workflow.
 
-    -   add network-regularisation script
 
 -   **Data**:
 
@@ -33,24 +32,24 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 
 ### Setup Instructions
 
-1.  **Clone the Repository**:
+1.  **Clone the Repository (on R terminal)**:
 
     ``` bash
-    git clone https://github.com/BeatrizNL/Monet.git
+    git clone https://github.com/sysbiomed/GBMsurvival.git
     cd Monet
     ```
 
-2.  **Restore the R Environment**:
+2.  **Restore the R Environment (on R console)**:
 
-    -   Make sure R is installed on your system.
+    ``` r
+    rstudio /path/to/your/project/Monet.Rproj # Replace with your actual path
 
-    -   Open R or RStudio in the project directory.
-
-    -   Run the following command to restore the environment:
-
-        ``` r
-        renv::restore()
-        ```
+    setwd("path/to/Monet")  # Replace with your actual path
+    
+    renv::activate()
+    renv::restore()
+    
+    ```
 
 3.  **Run the Analysis**:
 
