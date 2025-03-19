@@ -128,26 +128,39 @@ log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
 # Cache to use in memoise
 cd <- cachem::cache_disk(here::here(".", "memoise-cache"), max_size = 3 * 1024^3)
 
-download_data <- memoise::memoise(
-  function() {
-    query_RNA <- TCGAbiolinks::GDCquery(
-      project = c("TCGA-GBM", "TCGA-LGG"),
-      data.category = "Transcriptome Profiling",
-      data.type = "Gene Expression Quantification",
-      workflow.type = "STAR - Counts",
-      experimental.strategy = ("RNA-Seq")
-    )
-    # Check if files exist before downloading
-    if (!dir.exists("GDCdata")) {
-      TCGAbiolinks::GDCdownload(query = query_RNA)
-    }
+# download_data <- memoise::memoise(
+#   function() {
+#     query_RNA <- TCGAbiolinks::GDCquery(
+#       project = c("TCGA-GBM", "TCGA-LGG"),
+#       data.category = "Transcriptome Profiling",
+#       data.type = "Gene Expression Quantification",
+#       workflow.type = "STAR - Counts",
+#       experimental.strategy = ("RNA-Seq")
+#     )
+#     # Check if files exist before downloading
+#     if (!dir.exists("GDCdata")) {
+#       TCGAbiolinks::GDCdownload(query = query_RNA)
+#     }
+# 
+#     TCGAbiolinks::GDCprepare(query = query_RNA)
+#   },
+#   cache = cd
+# )
+# 
+# TCGA_RNA <- download_data()
+# saveRDS(TCGA_RNA, file = "TCGA_RNA.rds")
 
-    TCGAbiolinks::GDCprepare(query = query_RNA)
-  },
-  cache = cd
-)
+library(googledrive)
 
-TCGA_RNA <- download_data()
+# Ensure that we don't use authentication (for public files)
+drive_deauth()
+
+# Now download the file directly
+drive_download(as_id("1UkGI-yjHDu_HQFL4dmwW-T9vde2JnD3J"), 
+               path = "TCGA_RNA.rds", 
+               overwrite = TRUE)
+
+TCGA_RNA <- readRDS("TCGA_RNA.rds")
 
 # query_RNA <- TCGAbiolinks::GDCquery(
 #   project = c("TCGA-GBM", "TCGA-LGG"),
