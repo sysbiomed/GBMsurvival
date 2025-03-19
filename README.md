@@ -42,9 +42,8 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 2.  **Restore the R Environment (on R console)**:
 
     ``` r
-    rstudio /path/to/your/project/Monet.Rproj # Replace with your actual path
-
     setwd("path/to/Monet")  # Replace with your actual path
+    rstudioapi::openProject("Monet.Rproj")
     
     renv::activate()
     renv::restore()
