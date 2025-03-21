@@ -84,6 +84,22 @@ calculate_MRR <- function(metric_df, higher_is_better = TRUE) { #TRUE for C-inde
   return(mrr_results)
 }
 
+
+# # Function to calculate the confidence interval
+#
+# calculate_ci <- function(values, conf.level = 0.95) {
+#   values <- values[!is.na(values)]
+#   n <- length(values)
+#   mean_val <- mean(values)
+#   std_err <- sd(values) / sqrt(n)
+#   error_margin <- qt((1 + conf.level) / 2, df = n - 1) * std_err
+#   ci_lower <- mean_val - error_margin
+#   ci_upper <- mean_val + error_margin
+#   return(c(lower = ci_lower, upper = ci_upper))
+# }
+#
+
+
 # Get Information about the genes whose coefficient is not zero
 
 getGenesInfo <- function(coefficients) {
