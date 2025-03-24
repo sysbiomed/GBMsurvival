@@ -18,7 +18,7 @@ params:
   s: "lambda.min"
   nlambda: 500
   lambda.min.ratio: 0.001
-  limit_xdata: FALSE
+  limit_xdata: FALSE # FALSE or number of rows
   cores: 5
   # interactive: !r interactive()
   interactive: FALSE
@@ -181,8 +181,7 @@ data$test <- list(raw = rsample::testing(data$split))
 ```{r, echo=FALSE}
 local({
   # Check if data split is the same
-  set.seed(params$seed)
-  splited <- splitTestAndTrain(.raw_gene, .raw_surv, params$partition)
+  splited <- splitTestAndTrain(.raw_gene, .raw_surv, params$partition, seed_split = params$seed)
   
   stopifnot(
     "Partition is not the same!" = !isFALSE(params$limit_xdata) || all(
