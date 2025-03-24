@@ -4,6 +4,7 @@ output: html_document
 date: "2024-12-13"
 params:
   hash_id: "hcae30e"
+  digits: 3
 ---
 
 ```{r setup, include=FALSE}
@@ -38,7 +39,7 @@ c("hcae30e", "h17dd08") |> #, "h8e4929") |>
     
     suffix <- paste(sort(names(local_params)), local_params[sort(names(local_params))], collapse = "_") |> 
       stringr::str_replace_all(" ", "_")
-    file_name <- here::here("Results", "summary_reports", glue::glue("summary_{suffix}.md"))
+    file_name <- here::here("Results", "summary_reports", glue::glue("summary_{suffix}.html"))
     
     dir.create(dirname(file_name), showWarnings = FALSE)
   
@@ -80,11 +81,11 @@ summary_results <- loaded_results |>
   # dplyr::filter(!is.na(value)) |> 
   dplyr::group_by(label, metric) |> 
   dplyr::summarize(
-    min = min(value, na.rm = TRUE),
-    max = max(value, na.rm = TRUE),
-    mean = mean(value, na.rm = TRUE),
-    sd = sd(value, na.rm = TRUE),
-    median = median(value, na.rm = TRUE),
+    min = round(min(value, na.rm = TRUE), digits = params$digits),
+    max = round(max(value, na.rm = TRUE), digits = params$digits),
+    mean = round(mean(value, na.rm = TRUE), digits = params$digits),
+    sd = round(sd(value, na.rm = TRUE), digits = params$digits),
+    median = round(median(value, na.rm = TRUE), digits = params$digits),
     convergence = sum(!is.na(value)),
     .groups = "drop"
   ) |> 
@@ -135,14 +136,13 @@ DT::datatable(raw_results)
 ```
 
 
-#### Loaded {.active}
+#### Loaded
 
 ```{r}
 DT::datatable(loaded_results)
 ```
 
-
-#### Stats
+#### Stats {.active}
 
 ```{r}
 DT::datatable(summary_results)
@@ -212,7 +212,8 @@ coef_raw_results <- list.files(
         tibble::tibble(
           coef_name = e$coefs[[.y]],
           origin = .y,
-          count = 1
+          count = 1,
+          seed = e$params$seed
         )
       )
     },
@@ -220,11 +221,13 @@ coef_raw_results <- list.files(
     init = tibble::tibble()
   )
 }) |>
-  dplyr::bind_rows() |>
+  dplyr::bind_rows()
+
+coef_raw_summarized <- coef_raw_results |>
   dplyr::group_by(coef_name, origin) |>
   dplyr::summarise(count = sum(count), .groups = "keep")
 
-coef_results <- coef_raw_results |> 
+coef_results <- coef_raw_summarized |> 
   tidyr::pivot_wider(
     values_from = "count",
     names_from = "origin",
@@ -240,32 +243,39 @@ coef_results <- coef_raw_results |>
 
 #### Summary
 
-```{r, results='asis', echo=FALSE}
-print(knitr::kable(coef_results))
+```{r, echo=FALSE}
+knitr::kable(coef_results)
 ```
 
 ```{r, results='asis', echo=FALSE}
-coef_results |> 
-  dplyr::ungroup() |>
-  dplyr::select(-coef_name) |> 
-  colnames() |>
+coef_raw_results$origin |> 
+  unique() |>
   purrr::walk(\(.x) {
     cat("####", .x, "\n\n")
     cat("```\n")
 
-    cat(
-      paste0(
-        "c(",
-        paste(
-          "\"",
-          sort(coef_results$coef_name[coef_results[[.x]] > 0]),
-          "\"",
-          collapse = ", ",
-          sep = ""
-        ),
-        ")\n"
-      )
-    )
+    seeds <- dplyr::filter(coef_raw_results, origin == .x)$seed |> 
+      unique() |>
+      sort()
+    
+    purrr::walk(seeds, \(.y) {
+      cat("# Seed ", .y, "\n")
+      cat(
+        paste0(
+          "c(",
+          paste(
+            "\"",
+            sort(dplyr::filter(coef_raw_results, origin == .x, seed == .y)$coef_name),
+            "\"",
+            collapse = ", ",
+            sep = ""
+          ),
+          ")\n"
+        )
+      )  
+    })
+    
+    
     cat("```\n\n")    
   })
 
