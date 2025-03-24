@@ -244,6 +244,12 @@ survival_data <- orderDataByPatient(survival_data)
 log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
 
+```{r, eval=FALSE, include=FALSE}
+# Local chunk to store shared dataset
+feather::write_feather(genes_expression, "Results/genes_expression.feather")
+feather::write_feather(survival_data, "Results/survival_data.feather")
+```
+
 # Fit and Explore the Models (train != test)
 
 ```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
