@@ -99,6 +99,35 @@ calculate_MRR <- function(metric_df, higher_is_better = TRUE) { #TRUE for C-inde
 # }
 #
 
+# Function to calculate the confidence interval
+library(boot)
+
+compute_confi_inter <- function(values, R = 10000, seed = 123) {
+  # Remove NA values
+  values <- na.omit(values)
+
+  # Set seed for reproducibility
+  set.seed(seed)
+
+  # Statistic function: mean of resampled values
+  boot_fn <- function(data, indices) {
+    mean(data[indices])
+  }
+
+  # Perform bootstrap
+  bootstrap_res <- boot::boot(values, statistic = boot_fn, R = R)
+
+  # Compute percentile-based confidence interval
+  ci_boot <- boot::boot.ci(bootstrap_res, type = "perc")
+
+  # Extract lower and upper bounds from percentile method
+  ci_bounds <- ci_boot$percent[4:5]  # 4th and 5th elements are lower and upper bounds
+
+  # Return named vector
+  return(c(lower = ci_bounds[1], upper = ci_bounds[2]))
+}
+
+
 
 # Get Information about the genes whose coefficient is not zero
 
