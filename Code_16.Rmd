@@ -394,14 +394,14 @@ for (i in seq_len(nrow(c_index_df))) {
   cindex_vals <- as.numeric(c_index_df[i, ])
   ibs_vals <- as.numeric(IBS_df[i, ])
   
-  ci_cindex <- t.test(cindex_vals) #calculate_ci(cindex_vals)
-  ci_ibs <- t.test(ibs_vals) #calculate_ci(ibs_vals)
+  ci_cindex <- compute_confi_inter(cindex_vals) 
+  ci_ibs <- compute_confi_inter(ibs_vals) 
   
-  c_index_ci_lower[i] <- round(ci_cindex$conf.int[1], 3) # round(ci_cindex["lower"], 3)
-  c_index_ci_upper[i] <- round(ci_cindex$conf.int[2], 3) # round(ci_cindex["upper"], 3)
+  c_index_ci_lower[i] <- round(ci_cindex[[1]], 3) 
+  c_index_ci_upper[i] <- round(ci_cindex[[2]], 3) 
   
-  ibs_ci_lower[i] <- round(ci_ibs$conf.int[1], 3) # round(ci_ibs["lower"], 3)
-  ibs_ci_upper[i] <- round(ci_ibs$conf.int[2], 3) # round(ci_ibs["upper"], 3)
+  ibs_ci_lower[i] <- round(ci_ibs[[1]], 3) 
+  ibs_ci_upper[i] <- round(ci_ibs[[2]], 3)
 }
 
 
@@ -901,6 +901,60 @@ if (nrow(as.data.frame(kegg_enrichment)) > 0) {
 } else {
   cat("No enriched KEGG terms to plot.")
 }
+
+#-------- NOVO
+
+# You need at least one specific pathway to visualize.
+# For example, choose the first significant KEGG pathway if it exists:
+kegg_df <- as.data.frame(kegg_enrichment)
+
+if (nrow(kegg_df) > 0) {
+  selected_pathway <- kegg_df$ID[1]  # First KEGG pathway ID, e.g. "hsa04110"
+
+  # Run pathview using default gene list (set gene.data as vector of 1s)
+  # because you may not have expression data
+  pathview(gene.data = rep(1, length(genes_list$ENTREZID)),
+           gene.idtype = "entrez",
+           pathway.id = selected_pathway,
+           species = "hsa",
+           out.suffix = "demo_pathway")  # Output files will be saved
+} else {
+  cat("No KEGG pathway available to visualize with Pathview.\n")
+}
+
+
+# Run Reactome enrichment
+reactome_results <- enrichPathway(gene = genes_list$ENTREZID,
+                                  readable = TRUE)
+
+# Dot plot for GO enrichment results if results are found
+if (nrow(as.data.frame(reactome_results)) > 0) {
+  dotplot(reactome_results, showCategory = 10)  # Show top 10 GO terms
+} else {
+  cat("No enriched ReactomePA terms to plot.")
+}
+
+
+# Create STRINGdb object for human
+string_db <- STRINGdb$new(version = "11.5", species = 9606)#, score_threshold = 400)
+
+# Prepare gene list for STRING (using SYMBOLs)
+genes_symbols <- bitr(genesss,
+                      fromType = "ENSEMBL",
+                      toType = "SYMBOL",
+                      OrgDb = org.Hs.eg.db)
+
+# Map to STRING IDs (remove unmapped rows)
+mapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = TRUE)
+
+# Plot PPI network
+if (nrow(mapped_genes) > 0) {
+  string_db$plot_network(mapped_genes$STRING_id)
+} else {
+  cat("No mapped genes found for STRING network.\n")
+} 
+
+
 
 # write on the chunk end time file
 log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt")
