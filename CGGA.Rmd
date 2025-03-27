@@ -114,8 +114,8 @@ log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
 ```{r Folder_to_store_results}
 
 # Ensure the 'Results' directory exists
-if (!dir.exists("Results_CGGA")) {
-  dir.create("Results_CGGA")
+if (!dir.exists("CGGA_Results")) {
+  dir.create("CGGA_Results")
 }
 
 # write on the chunk end time file
@@ -346,733 +346,123 @@ survival_data <- orderDataByPatient(survival_data)
 log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
 
-# Fit and Explore the Models (train != test)
+# Fit a Cox model with the desired genes (train =! test)
 
-```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
+```{r Fit_a_Cox_model_with_the_desired_genes, message=FALSE, warning=FALSE}
 
-# Models' names
-models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") #"SIS", "ISIS", "CausalForest+Cox",
+#RO60 = TROVE2
 
-best_alpha <- 1
-n_seeds <- 10
+# Get the coefficients of the best model
+best_coefficients <- c("LOXL1", "PCDHB3", "TROVE2", "TNFRSF18", 
+                       "IGFBP6", "NOSTRIN", "CADM3", "CEP97", "MMP19") 
 
-# Define the seeds for the iterations
-seeds <- seq(1, n_seeds, by = 1)
+# Split the data
+splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, seed_split = 6) # 3 ou 6 <- colocar o seed
 
-# Initialize a list to store the coefficients for each iteration
-models_coefficients_list <- list()
+genes_expression_train <- splited$expression_train
+survival_train <- splited$survival_train
+genes_expression_test <- splited$expression_test
+survival_test <- splited$survival_test
 
-# Create an empty dataframes to store the evaluation metrics values
-c_index_df <- create_metrics_dataframes(seeds, models_names_list)
-p_value_df <- create_metrics_dataframes(seeds, models_names_list)
-IBS_df <- create_metrics_dataframes(seeds, models_names_list)
-num_coeff_df <- create_metrics_dataframes(seeds, models_names_list)
+# Define survival object
+survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
 
-# Memoised function to compute significant variable names
-compute_significant_variable_names <- memoise::memoise(
-  function(seeds, genes_expression, survival_data) {
-    significant_variable_names <- list()
-    
-    for (i in seeds) {
-      logger::log_info("Running univariate cox for seed: {i}")
-      
-      # Split the data
-      splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, i)
-      
-      genes_expression_train <- splited$expression_train
-      survival_train <- splited$survival_train
-      genes_expression_test <- splited$expression_test
-      survival_test <- splited$survival_test
-      
-      # Run univariate Cox regression for each variable
-      significant_variable_names[[i]] <- univariate_cox(survival_train, genes_expression_train, 0.05) # old 0.05
-    }
-    
-    return(significant_variable_names)
-  },
-  cache = cd
-)
+# Fit a Cox regression model using the covariates
+fit <- coxph(survival_object_train ~ .,
+             data = subset(genes_expression_train, select = best_coefficients)) # specify coefficients
 
-# Call the memoised function
-significant_variable_names <- compute_significant_variable_names(seeds, genes_expression, survival_data)
+# Test the proportional hazards assumption for a Cox regression model fit (coxph)
+#Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
+#Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
+#print(Propo_hazards$table)
 
-# Loop through the seeds and run the analysis
-for (i in seeds) {
-  logger::log_info("Running analysis for seed: {i}")
-  
-  # Split the data
-  splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, i)
-
-  genes_expression_train <- splited$expression_train
-  survival_train <- splited$survival_train
-  genes_expression_test <- splited$expression_test
-  survival_test <- splited$survival_test
-  
-  # reduce the genes expression data frame to only the colunmns of interest
-  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names[[i]])]
-  
-  # Define survival object
-  survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
-  
-  # Fit models
-  models_coefficients_list[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train)
-  
-  # Calculate and store C-index and IBS for each model
-  a <- which(seeds == i)
-  for (j in seq_along(models_coefficients_list[[i]])) {
-
-    num_coeff_df[j, a] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
-    
-    if (num_coeff_df[j, a] > 0) {
-      
-      c_index_p_value <- calculate_c_index_p_value(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test, survival_data)
-      
-      c_index_df[j, a] <- c_index_p_value$c_index
-      
-      p_value_df[j, a] <- c_index_p_value$p_value
-      
-      IBS_df[j, a] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list[[i]][[j]], genes_expression_test, survival_test)
-        
-      logger::log_info("seed: ", i)
-      logger::log_info("c_index: ", c_index_df[j, a])
-      logger::log_info("p_value: ", p_value_df[j, a])
-      logger::log_info("IBS: ", IBS_df[j, a])
-      
-      num_coeff_df[j, a] <- length(models_coefficients_list[[i]][[j]]$ensembl_gene_id)
-    } else {
-
-      # If the model has empty coefficients, set C-index and IBS to NA
-      c_index_df[j, a] <- NA
-      IBS_df[j, a] <- NA
-      p_value_df[j, a] <- NA
-        }
-    }
-}
-
-#MRR_C_Index <- calculate_MRR(c_index_df, higher_is_better = TRUE)
-#MRR_IBS <- calculate_MRR(IBS_df, higher_is_better = FALSE)
-
-# Initialize empty vectors for Confidence Intervals
-c_index_ci_lower <- c()
-c_index_ci_upper <- c()
-ibs_ci_lower <- c()
-ibs_ci_upper <- c()
-
-for (i in seq_len(nrow(c_index_df))) {
-  cindex_vals <- as.numeric(c_index_df[i, ])
-  ibs_vals <- as.numeric(IBS_df[i, ])
-  
-  ci_cindex <- t.test(cindex_vals) #calculate_ci(cindex_vals)
-  ci_ibs <- t.test(ibs_vals) #calculate_ci(ibs_vals)
-  
-  c_index_ci_lower[i] <- round(ci_cindex$conf.int[1], 3) # round(ci_cindex["lower"], 3)
-  c_index_ci_upper[i] <- round(ci_cindex$conf.int[2], 3) # round(ci_cindex["upper"], 3)
-  
-  ibs_ci_lower[i] <- round(ci_ibs$conf.int[1], 3) # round(ci_ibs["lower"], 3)
-  ibs_ci_upper[i] <- round(ci_ibs$conf.int[2], 3) # round(ci_ibs["upper"], 3)
-}
+# Construct a risk score based on the linear predictor on the test data
+survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_coefficients), type = "lp")
+survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_coefficients), type = "lp")
 
 
-# Create a summary table
-summary_table <- data.frame(
-  C_Index_Avg = round(apply(c_index_df, 1, mean, na.rm = TRUE), 3),
-  C_Index_Std_Dev = round(apply(c_index_df, 1, sd, na.rm = TRUE), 3),
-  C_Index_95CI = paste0("(", c_index_ci_lower, " – ", c_index_ci_upper, ")"),
-  #MRR_C_Index = MRR_C_Index$MRR,
-  
-  P_value_Avg = round(apply(p_value_df, 1, mean, na.rm = TRUE), 3),
-  P_value_Std_Dev = round(apply(p_value_df, 1, sd, na.rm = TRUE), 3),
-  
-    IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
-  IBS_Std_Dev = round(apply(IBS_df, 1, sd, na.rm = TRUE), 3),
-  #MRR_IBS = MRR_IBS$MRR,
-  IBS_95CI = paste0("(", ibs_ci_lower, " – ", ibs_ci_upper, ")"),
-  
-  
-  
-  Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
-  Coeff_Num_Std_Dev = round(apply(num_coeff_df, 1, sd), 1),
-  Non_Convergence_Perc = apply(num_coeff_df, 1, function(x) mean(x == 0) * 100)
-)
+# Visualize the distribution of the risk predictor
+plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities_test), aes(x = Risk_Predictor)) +
+                            geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") +
+                            geom_density(color = "red", adjust = 1.5) +
+                            labs(title = "Distribution of Risk Predictor",
+                                 x = "Risk Predictor (Linear Predictor)",
+                                 y = "Frequency") +
+                            theme_minimal()
 
-#Save a summary table as a CSV file
-write.csv(summary_table, file = "Results_CGGA/summary_table.csv", row.names = TRUE)
-print(summary_table)
+plot_distribution
 
-#Save a p-value as a CSV file
-write.csv(p_value_df, file = "Results_CGGA/p_value_df.csv", row.names = TRUE)
+# Categorize individuals of the test data based on the median
+risk <- ifelse(survival_probabilities_test > median(survival_probabilities_train), "High", "Low")
 
-#Save a p-value as a CSV file
-write.csv(c_index_df, file = "Results_CGGA/c_index_df.csv", row.names = TRUE)
+# Kaplan-Meier com a separação por High/ Low
+fit_surv <- survfit(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk)
+survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk)
 
-# write on the chunk end time file
-log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chunk_times_log.txt")
+survdiff_output <- capture.output(survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk))
+plot <- ggsurvplot(fit_surv,
+                   data = survival_test,
+                   title = "Kaplan-Meier Curves by Risk Status",
+                   xlab = "Time (years)",
+                   legend.title = "Group",
+                   pval = TRUE)
+plot$plot
+
+ggsave(filename = "CGGA_Results/train_differ_test_plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4)
 
 ```
-<!-- # Analyse the best model (train != test) -->
+# Fit a Cox model with the desired genes (train == test)
 
-<!-- ```{r Analyse_the_best_model_different, message=FALSE, warning=FALSE} -->
-<!-- # Identify the model with the highest average C-index -->
-<!-- #best_model_index <- which.min(rowMeans(p_value_df, na.rm = TRUE))  -->
-<!-- best_model_index <- 2#which.max(rowMeans(c_index_df, na.rm = TRUE))  -->
-<!-- best_model_name <- rownames(c_index_df)[best_model_index] -->
+```{r Fit_a_Cox_model_with_the_desired_genes, message=FALSE, warning=FALSE}
 
-<!-- logger::log_info("Best model:", best_model_name) -->
-<!-- cat("Best model:", best_model_name) -->
+#RO60 = TROVE2
 
-<!-- seeddd <- 1 # 5 boruta, 8 RSF -->
+# Get the coefficients of the best model
+best_coefficients <- c("LOXL1", "PCDHB3", "TROVE2", "TNFRSF18", 
+                       "IGFBP6", "NOSTRIN", "CADM3", "CEP97", "MMP19") 
 
-<!-- # Get the coefficients of the best model -->
-<!-- best_model_coefficients <- models_coefficients_list[[seeddd]][[best_model_index]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance -->
+# Define survival object
+survival_object <- Surv(time = survival_data$days, event = survival_data$vital_status)
 
-<!-- # Get information on the coefficients of the best model -->
-<!-- # gene_info_result <- getGenesInfo(best_model_coefficients) -->
-<!-- # print(gene_info_result) -->
+# Fit a Cox regression model using the covariates
+fit <- coxph(survival_object ~ .,
+             data = subset(genes_expression, select = best_coefficients)) # specify coefficients
 
-<!-- # Split the data -->
-<!-- splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, seeddd) # <- colocar o seed -->
+# Test the proportional hazards assumption for a Cox regression model fit (coxph)
+#Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE)
+#Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"]
+#print(Propo_hazards$table)
 
-<!-- genes_expression_train <- splited$expression_train -->
-<!-- survival_train <- splited$survival_train -->
-<!-- genes_expression_test <- splited$expression_test -->
-<!-- survival_test <- splited$survival_test -->
+# Construct a risk score based on the linear predictor on the test data
+survival_probabilities <- predict(fit, newdata = subset(genes_expression, select = best_coefficients), type = "lp")
 
-<!-- # Define survival object -->
-<!-- survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status) -->
+# Visualize the distribution of the risk predictor
+plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities), aes(x = Risk_Predictor)) +
+                            geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") +
+                            geom_density(color = "red", adjust = 1.5) +
+                            labs(title = "Distribution of Risk Predictor",
+                                 x = "Risk Predictor (Linear Predictor)",
+                                 y = "Frequency") +
+                            theme_minimal()
 
-<!-- # Fit a Cox regression model using the covariates -->
-<!-- fit <- coxph(survival_object_train ~ ., -->
-<!--              data = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), # specify coefficients -->
-<!--              init = as.numeric(best_model_coefficients$Coef_value), # specify coefficient values -->
-<!--              iter.max = 0) # force the software to keep those values -->
+plot_distribution
 
-<!-- # Test the proportional hazards assumption for a Cox regression model fit (coxph) -->
-<!-- #Propo_hazards <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE) -->
-<!-- #Propo_hazards_global_p_value <- Propo_hazards$table["GLOBAL", "p"] -->
-<!-- #print(Propo_hazards$table) -->
+# Categorize individuals of the test data based on the median
+risk <- ifelse(survival_probabilities > median(survival_probabilities), "High", "Low")
 
-<!-- # Construct a risk score based on the linear predictor on the test data -->
-<!-- survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients$ensembl_gene_id), type = "lp") -->
-<!-- survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp") -->
+# Kaplan-Meier com a separação por High/ Low
+fit_surv <- survfit(Surv(survival_data$days/365.25, survival_data$vital_status) ~ risk)
+survdiff(Surv(survival_data$days/365.25, survival_data$vital_status) ~ risk)
 
+survdiff_output <- capture.output(survdiff(Surv(survival_data$days/365.25, survival_data$vital_status) ~ risk))
+plot <- ggsurvplot(fit_surv,
+                   data = survival_data,
+                   title = "Kaplan-Meier Curves by Risk Status",
+                   xlab = "Time (years)",
+                   legend.title = "Group",
+                   pval = TRUE)
+plot$plot
 
-<!-- # Visualize the distribution of the risk predictor -->
-<!-- plot_distribution <- ggplot(data.frame(Risk_Predictor = survival_probabilities_test), aes(x = Risk_Predictor)) + -->
-<!--                             geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") + -->
-<!--                             geom_density(color = "red", adjust = 1.5) + -->
-<!--                             labs(title = "Distribution of Risk Predictor", -->
-<!--                                  x = "Risk Predictor (Linear Predictor)", -->
-<!--                                  y = "Frequency") + -->
-<!--                             theme_minimal() -->
+ggsave(filename = "CGGA_Results/train_equal_test_plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4)
 
-<!-- plot_distribution -->
-
-<!-- # Categorize individuals of the test data based on the median -->
-<!-- risk <- ifelse(survival_probabilities_test > median(survival_probabilities_train), "High", "Low") -->
-
-<!-- # Kaplan-Meier com a separação por High/ Low -->
-<!-- fit_surv <- survfit(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk) -->
-<!-- survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk) -->
-
-<!-- survdiff_output <- capture.output(survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk)) -->
-<!-- plot <- ggsurvplot(fit_surv, -->
-<!--                    data = survival_test, -->
-<!--                    title = "Kaplan-Meier Curves by Risk Status", -->
-<!--                    xlab = "Time (years)", -->
-<!--                    legend.title = "Group", -->
-<!--                    pval = TRUE) -->
-<!-- plot$plot -->
-
-
-<!-- #---------------------------- AUC -->
-
-<!-- #---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/ -->
-<!-- # The cumulative sensitivity considers those who have died by time t -->
-<!-- # The dynamic specificity regards those who are still alive at time t -->
-<!-- # This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period. -->
-<!-- Cumulative_ROC <- CumulativeCaseDynamicControlROC(survival_test, survival_probabilities_test, "Cumulative case/ Dynamic control ROC") -->
-<!-- Cumulative_ROC -->
-
-<!-- #---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/ -->
-<!-- # The incident sensitivity considers those who die at time t -->
-<!-- # The dynamic specificity regards those who are still alive at time t -->
-<!-- # This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t. -->
-<!-- Incident_ROC <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC") -->
-<!-- Incident_ROC -->
-
-<!-- #Risk AUC based on Incident case/dynamic control -->
-<!-- plot.new() -->
-<!-- riskAUC = risksetAUC(Stime=survival_test$days/365.25, -->
-<!--                      status = survival_test$vital_status, -->
-<!--                      marker = survival_probabilities_test, -->
-<!--                      method = "Cox", -->
-<!--                      tmax = ceiling(max(survival_test$days))/365.25, -->
-<!--                      type = "b", -->
-<!--                      plot = TRUE, -->
-<!--                      xlab = "Time (years)") -->
-<!-- title(main= "AUC based on Incident case/dynamic control") -->
-<!-- recorded_plot <- recordPlot()  # Store the plot -->
-
-<!-- # Save to PDF -->
-<!-- pdf("Results_CGGA/riskAUC.pdf", width = 6, height = 4) -->
-<!-- replayPlot(recorded_plot) -->
-<!-- dev.off() -->
-
-<!-- # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC) -->
-<!-- logger::log_info("Concordance based on Incident Case/Dynamic Control definition:", riskAUC$Cindex) -->
-
-<!-- #---------------------------- UpSet plot -->
-
-<!-- # Do an UpSet plot its like a veen diagram but for higher ammount of groups -->
-<!-- genes_list <- list() -->
-<!-- for (i in 1:n_seeds) { -->
-<!--   genes_list[[paste("Seed: ", i)]] <- models_coefficients_list[[i]][[best_model_index]]$ensembl_gene_id -->
-<!-- } -->
-
-<!-- # Create an UpSet plot -->
-<!-- upset_plot <- UpSetR::upset(fromList(genes_list),nsets = n_seeds, -->
-<!--                     order.by = "degree", mb.ratio = c(0.5,0.50)) -->
-<!-- plot.new() -->
-<!-- upset_plot -->
-<!-- recorded_plot <- recordPlot()  # Store the plot -->
-
-<!-- # save the plot -->
-<!-- pdf("Results_CGGA/upset_plot.pdf", width = 8, height = 3) # Create a PDF file to save the plot -->
-<!-- replayPlot(recorded_plot) -->
-<!-- dev.off() # to save the plot above -->
-<!-- replayPlot(recorded_plot) -->
-
-<!-- #---------------------------- Make a table with the genes that are in more than 1 seed -->
-
-<!-- df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list) -->
-<!-- print(df_genes_in_multiple_seeds) # Display the data frame -->
-
-<!-- # Save a predictors genes and coefficients as a CSV file -->
-<!-- #write.csv(Propo_hazards$table, file = "Results_CGGA/Propo_hazards", row.names = TRUE) -->
-
-<!-- # Save a predictors genes and coefficients as a CSV file -->
-<!-- # write.csv(gene_info_result, file = "Results_CGGA/predictors_genes_and_coefficients", row.names = FALSE) -->
-
-<!-- # Write the captured output to a file -->
-<!-- writeLines(survdiff_output, "Results_CGGA/survdiff_output.txt") -->
-
-<!-- # Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC) -->
-<!-- write.csv(riskAUC$Cindex, file = "Results_CGGA/concordance_IncidentCaseDynamicControlROC", row.names = FALSE) -->
-
-
-<!-- # Save the table with the genes that are in more than 1 seed -->
-<!-- write.csv(df_genes_in_multiple_seeds, file = "Results_CGGA/df_genes_in_multiple_seeds", row.names = FALSE) -->
-
-
-<!-- # Save plots -->
-<!-- ggsave(filename = "Results_CGGA/plot_high_low_risk.pdf", plot = plot$plot, width = 6, height = 4) -->
-<!-- ggsave(filename = "Results_CGGA/Cumulative_ROC.pdf", plot = Cumulative_ROC, width = 6, height = 4) -->
-<!-- ggsave(filename = "Results_CGGA/Incident_ROC.pdf", plot = Incident_ROC, width = 6, height = 4) -->
-<!-- ggsave(filename = "Results_CGGA/distribution_of_risk_predictor.pdf", plot = plot_distribution, width = 6, height = 4) -->
-
-
-<!-- # write on the chunk end time file -->
-<!-- log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_times_log.txt") -->
-<!-- ``` -->
-
-<!-- # Fit and Explore the Models (train = test) -->
-
-<!-- ```{r Fit_and_Explore_the_Models_equal, message=FALSE, warning=FALSE} -->
-
-<!-- # Models' names -->
-<!-- models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") # "CausalForest+Cox", "SIS", "ISIS" -->
-
-<!-- best_alpha <- 0.5 -->
-<!-- n_seeds_all_equal <- 1 -->
-
-<!-- # Define the seeds for the iterations -->
-<!-- seeds_all_equal <- 1 -->
-
-<!-- # Initialize a list to store the coefficients for each iteration -->
-<!-- models_coefficients_list_all_equal <- list() -->
-
-<!-- # Create an empty dataframe to store the evaluation metrics values -->
-<!-- c_index_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list) -->
-<!-- p_value_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list) -->
-<!-- IBS_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list) -->
-<!-- num_coeff_df_all_equal <- create_metrics_dataframes(seeds_all_equal, models_names_list) -->
-
-<!-- # Loop through the seeds and run the analysis -->
-<!-- i <- seeds_all_equal -->
-<!-- logger::log_info("Running analysis for seed:", seeds_all_equal[i]) -->
-
-<!-- genes_expression_train <- genes_expression -->
-<!-- survival_train <- survival_data -->
-<!-- genes_expression_test <- genes_expression -->
-<!-- survival_test <- survival_data -->
-
-<!-- # Run univariate Cox regression for each variable -->
-<!-- significant_variable_names <- univariate_cox(survival_train, genes_expression_train, 0.05) #old 0.05 -->
-
-<!-- # reduce the genes expression data frame to only the colunmns of interest -->
-<!-- genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names)] -->
-
-<!-- # Define survival object -->
-<!-- survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status) -->
-
-<!-- # Fit models -->
-<!-- models_coefficients_list_all_equal[[i]] <- fit_models(genes_expression_train, survival_object_train, best_alpha, survival_train) -->
-
-<!-- # Calculate and store C-index for each model -->
-<!-- a <- which(seeds == i) -->
-<!-- for (j in seq_along(models_coefficients_list_all_equal[[i]])) { -->
-
-<!--  num_coeff_df_all_equal[j, a] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id) -->
-
-<!--  if (num_coeff_df_all_equal[j, a] > 0) { -->
-
-<!--   c_index_p_value_all_equal <- calculate_c_index_p_value(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test, survival_data) -->
-
-<!--   c_index_df_all_equal[j, a] <- c_index_p_value_all_equal$c_index -->
-
-<!--   p_value_df_all_equal[j, a] <- c_index_p_value_all_equal$p_value -->
-
-<!--   IBS_df_all_equal[j, a] <- calculate_integrated_brier_score(survival_object_train, genes_expression_train, models_coefficients_list_all_equal[[i]][[j]], genes_expression_test, survival_test) -->
-
-<!--   logger::log_info("seed: ", seeds_all_equal[i]) -->
-<!--   logger::log_info("c_index: ", c_index_df_all_equal[j, a]) -->
-<!--   logger::log_info("p_value: ", p_value_df_all_equal[j, a]) -->
-<!--   logger::log_info("IBS: ", IBS_df_all_equal[j, a]) -->
-<!--   num_coeff_df_all_equal[j, a] <- length(models_coefficients_list_all_equal[[i]][[j]]$ensembl_gene_id) -->
-
-<!--     } else { -->
-
-<!--     # If the model has empty coefficients, set C-index to NA  -->
-<!--     c_index_df_all_equal[j, a] <- NA -->
-<!--     p_value_df_all_equal[j, a] <- NA -->
-<!--     IBS_df_all_equal[j, a] <- NA -->
-<!--          } -->
-<!--   } -->
-
-
-
-<!-- # Create a summary table -->
-<!-- summary_table_all_equal <- data.frame( -->
-<!--   C_Index_Avg = round(apply(c_index_df_all_equal, 1, mean, na.rm = TRUE), 3), -->
-<!--   C_Index_Std_Dev = round(apply(c_index_df_all_equal, 1, sd, na.rm = TRUE), 3), -->
-<!--   P_value_Avg = round(apply(p_value_df_all_equal, 1, mean, na.rm = TRUE), 3), -->
-<!--   P_value_Std_Dev = round(apply(p_value_df_all_equal, 1, sd, na.rm = TRUE), 3), -->
-<!--   IBS_Avg = round(apply(IBS_df_all_equal, 1, mean, na.rm = TRUE), 3), -->
-<!--   IBS_Std_Dev = round(apply(IBS_df_all_equal, 1, sd, na.rm = TRUE), 3), -->
-<!--   Coeff_Num_Avg = round(apply(num_coeff_df_all_equal, 1, mean), 1), -->
-<!--   Coeff_Num_Std_Dev = round(apply(num_coeff_df_all_equal, 1, sd), 1), -->
-<!--   Non_Convergence_Perc = apply(num_coeff_df_all_equal, 1, function(x) mean(x == 0) * 100) -->
-<!-- ) -->
-
-<!-- #Save a summary table as a CSV file -->
-<!-- write.csv(summary_table_all_equal, file = "Results_CGGA/summary_table_all_equal.csv", row.names = TRUE) -->
-
-<!-- print(summary_table_all_equal) -->
-
-<!-- # write on the chunk end time file -->
-<!-- log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chunk_times_log.txt") -->
-<!-- ``` -->
-
-
-<!-- # Analyse the best model (train = test) -->
-
-<!-- ```{r Analyse_the_best_model_equal, message=FALSE, warning=FALSE} -->
-<!-- # Identify the model with the highest average C-index -->
-<!-- #best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE))  -->
-<!-- best_model_index_all_equal <- 2#which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE))  -->
-<!-- best_model_name_all_equal <- rownames(p_value_df_all_equal)[best_model_index_all_equal] -->
-
-<!-- logger::log_info("Best model:", best_model_name_all_equal) -->
-<!-- cat("Best model:", best_model_name_all_equal) -->
-
-<!-- # Get the coefficients of the best model -->
-<!-- best_model_coefficients_all_equal <- models_coefficients_list_all_equal[[1]][[best_model_index_all_equal]] # o index aqui escolhido tem que bater certo com o seed do split data para que dê igual performance -->
-
-<!-- # Get information on the coefficients of the best model -->
-<!-- # gene_info_result_all_equal <- getGenesInfo(best_model_coefficients_all_equal) -->
-<!-- # print(gene_info_result_all_equal) -->
-
-<!-- # Split the data -->
-<!-- set.seed(1) -->
-<!-- #splited <- splitTestAndTrain(genes_expression, survival_data, 0.7) -->
-
-<!-- genes_expression_train <- genes_expression -->
-<!-- survival_train <- survival_data -->
-<!-- genes_expression_test <- genes_expression -->
-<!-- survival_test <- survival_data -->
-
-<!-- # Define survival object -->
-<!-- survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status) -->
-
-<!-- # Fit a Cox regression model using the covariates -->
-<!-- fit <- coxph(survival_object_train ~ ., -->
-<!--              data = subset(genes_expression_train, select = best_model_coefficients_all_equal$ensembl_gene_id), # specify coefficients -->
-<!--              init = as.numeric(best_model_coefficients_all_equal$Coef_value), # specify coefficient values -->
-<!--              iter.max = 0) # force the software to keep those values -->
-
-<!-- # Test the proportional hazards assumption for a Cox regression model fit (coxph) -->
-<!-- #Propo_hazards_all_equal <- cox.zph(fit, transform="km", terms=TRUE, singledf=FALSE, global=TRUE) -->
-<!-- #Propo_hazards_global_p_value_all_equal <- Propo_hazards_all_equal$table["GLOBAL", "p"] -->
-<!-- #print(Propo_hazards_all_equal$table) -->
-
-<!-- # Construct a risk score based on the linear predictor on the test data -->
-<!-- survival_probabilities_test <- predict(fit, newdata = subset(genes_expression_test, select = best_model_coefficients_all_equal$ensembl_gene_id), type = "lp")  -->
-
-
-<!-- # Visualize the distribution of the risk predictor -->
-<!-- plot_distribution_all_equal <- ggplot(data.frame(Risk_Predictor = survival_probabilities_test), aes(x = Risk_Predictor)) + -->
-<!--                             geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") + -->
-<!--                             geom_density(color = "red", adjust = 1.5) + -->
-<!--                             labs(title = "Distribution of Risk Predictor", -->
-<!--                                  x = "Risk Predictor (Linear Predictor)", -->
-<!--                                  y = "Frequency") + -->
-<!--                             theme_minimal() -->
-
-<!-- plot_distribution_all_equal -->
-
-<!-- # Categorize individuals of the test data based on the median -->
-<!-- risk <- ifelse(survival_probabilities_test > median(survival_probabilities_test), "High", "Low") -->
-
-<!-- # Kaplan-Meier com a separação por High/ Low -->
-<!-- fit_surv <- survfit(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk) -->
-<!-- survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk) -->
-
-<!-- survdiff_output_all_equal <- capture.output(survdiff(Surv(survival_test$days/365.25, survival_test$vital_status) ~ risk)) -->
-<!-- plot_all_equal <- ggsurvplot(fit_surv, -->
-<!--                    data = survival_test, -->
-<!--                    title = "Kaplan-Meier Curves by Risk Status", -->
-<!--                    xlab = "Time (years)", -->
-<!--                    legend.title = "Group", -->
-<!--                    pval = TRUE) -->
-<!-- plot_all_equal$plot -->
-
-<!-- # Extract median survival time for each group -->
-<!-- median_survival <- data.frame( -->
-<!--   group = names(fit_surv$strata),  # Group names -->
-<!--   median_survival_time = sapply(1:length(fit_surv$strata), function(i) { -->
-<!--     surv_summary <- summary(fit_surv, times = fit_surv$time) -->
-<!--     if (!is.na(surv_summary$table[i, "median"])) { -->
-<!--       surv_summary$table[i, "median"]  # Median survival time -->
-<!--     } else { -->
-<!--       NA  # If no median is found -->
-<!--     } -->
-<!--   }) -->
-<!-- ) -->
-
-<!-- # View the median survival times -->
-<!-- print(median_survival) -->
-
-
-<!-- #---------------------------- AUC -->
-
-<!-- #---------------------------- Cumulative case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/ -->
-<!-- # The cumulative sensitivity considers those who have died by time t -->
-<!-- # The dynamic specificity regards those who are still alive at time t -->
-<!-- # This is one gives the prediction performance for the risk (cumulative incidence) of events over the t-year period. -->
-<!-- Cumulative_ROC_all_equal <- CumulativeCaseDynamicControlROC(survival_test, survival_probabilities_test, "Cumulative case/ Dynamic control ROC") -->
-<!-- Cumulative_ROC_all_equal -->
-
-<!-- #---------------------------- Incident case/dynamic control ROC, fonte: https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/ -->
-<!-- # The incident sensitivity considers those who die at time t -->
-<!-- # The dynamic specificity regards those who are still alive at time t -->
-<!-- # This one gives the prediction performance for the hazard (incidence in the risk set) of events at t-year among those who are in the risk set at t. -->
-<!-- Incident_ROC_all_equal <-IncidentCaseDynamicControlROC(survival_test, survival_probabilities_test, "Incident case/ Dynamic control ROC") -->
-<!-- Incident_ROC_all_equal -->
-
-<!-- #Risk AUC based on Incident case/dynamic control -->
-<!-- plot.new() -->
-<!-- riskAUC_all_equal = risksetAUC(Stime=survival_test$days/365.25, -->
-<!--                      status = survival_test$vital_status, -->
-<!--                      marker = survival_probabilities_test, -->
-<!--                      method = "Cox", -->
-<!--                      tmax = ceiling(max(survival_test$days))/365.25, -->
-<!--                      type = "b", -->
-<!--                      plot = TRUE, -->
-<!--                      xlab = "Time (years)") -->
-<!-- title(main= "AUC based on Incident case/dynamic control") -->
-<!-- recorded_plot <- recordPlot()  # Store the plot -->
-
-<!-- # Save to PDF -->
-<!-- pdf("Results_CGGA/riskAUC_all_equal.pdf", width = 6, height = 4) # to save the plot below -->
-<!-- replayPlot(recorded_plot) -->
-<!-- dev.off() # to save the plot above -->
-
-<!-- # Print the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC) -->
-<!-- logger::log_info("Concordance based on Incident Case/Dynamic Control definition:", riskAUC_all_equal$Cindex) -->
-
-<!-- # Write the captured output to a file -->
-<!-- writeLines(survdiff_output_all_equal, "Results_CGGA/survdiff_output_all_equal.txt") -->
-
-<!-- # Save the concordance based on the Incident Case/Dynamic Control definition (calculated as a weighted average of the area under time-specific ROC) -->
-<!-- write.csv(riskAUC_all_equal$Cindex, file = "Results_CGGA/concordance_IncidentCaseDynamicControlROC_all_equal", row.names = FALSE) -->
-
-<!-- # Save plots -->
-<!-- ggsave(filename = "Results_CGGA/plot_high_low_risk_all_equal.pdf", plot = plot_all_equal$plot, width = 6, height = 4) -->
-<!-- ggsave(filename = "Results_CGGA/Cumulative_ROC_all_equal.pdf", plot = Cumulative_ROC_all_equal, width = 6, height = 4) -->
-<!-- ggsave(filename = "Results_CGGA/Incident_ROC_all_equal.pdf", plot = Incident_ROC_all_equal, width = 6, height = 4) -->
-<!-- ggsave(filename = "Results_CGGA/distribution_of_risk_predictor_all_equal.pdf", plot = plot_distribution_all_equal, width = 6, height = 4) -->
-
-
-<!-- # write on the chunk end time file -->
-<!-- log_chunk_end_time("Analyse the best model (train = test)", log_file = "chunk_times_log.txt") -->
-<!-- ``` -->
-
-<!-- # Enrichment Analysis -->
-
-<!-- ```{r Enrichment_Analysis, warning=FALSE} -->
-
-<!-- #print(best_model_coefficients_all_equal) -->
-
-<!-- # Extract ensembl_gene_id from the first entries of each sublist -->
-<!-- ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id) -->
-
-<!-- # Combine all the IDs into a single vector -->
-<!-- ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE)) -->
-
-
-<!-- # Remove the version of the gene from its name(everything after the dot including the dot) -->
-<!-- #genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id) -->
-<!-- genesss <- sub("\\..*", "", ensembl_ids_combined) -->
-
-<!-- # Convert Ensembl IDs to Entrez IDs -->
-<!-- genes_list <- bitr(genesss, -->
-<!--                     fromType = "ENSEMBL",  # Input type is Ensembl Gene IDs -->
-<!--                     toType = "ENTREZID",   # Convert to Entrez Gene IDs -->
-<!--                     OrgDb = org.Hs.eg.db)  # Database for human genes -->
-
-<!-- # GO Enrichment Analysis -->
-<!-- go_enrichment <- enrichGO(gene          = genes_list$ENTREZID, -->
-<!--                           OrgDb         = org.Hs.eg.db)#, -->
-<!--                           #keyType       = "ENTREZID",  # The type of gene identifier -->
-<!--                           #ont           = "ALL",      # "BP", "MF", "CC", or "ALL" for all three -->
-<!--                           #pAdjustMethod = "BH",       # Adjust p-values using Benjamini-Hochberg -->
-<!--                           #pvalueCutoff  = 0.05,       # p-value threshold -->
-<!--                           #qvalueCutoff  = 0.02)        # q-value (FDR) threshold -->
-
-
-<!-- # KEGG Pathway Enrichment Analysis -->
-<!-- kegg_enrichment <- enrichKEGG(gene         = genes_list$ENTREZID, -->
-<!--                               organism     = 'hsa')        # "hsa" for human genes -->
-<!--                               #pvalueCutoff = 0.05) -->
-
-
-<!-- # Dot plot for GO enrichment results if results are found -->
-<!-- if (nrow(as.data.frame(go_enrichment)) > 0) { -->
-<!--   dotplot(go_enrichment, showCategory = 10)  # Show top 10 GO terms -->
-<!-- } else { -->
-<!--   cat("No enriched GO terms to plot.") -->
-<!-- } -->
-
-<!-- # Dot plot for GO enrichment results if results are found -->
-<!-- if (nrow(as.data.frame(kegg_enrichment)) > 0) { -->
-<!--   dotplot(kegg_enrichment, showCategory = 10)  # Show top 10 GO terms -->
-<!-- } else { -->
-<!--   cat("No enriched KEGG terms to plot.") -->
-<!-- } -->
-
-<!-- # write on the chunk end time file -->
-<!-- log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt") -->
-<!-- ``` -->
-
-<!-- # Analyse the balance of censored data in test and training -->
-
-<!-- ```{r Analyse_the_balance_of_censored_data_in_test_and_training} -->
-
-<!-- counts_test <- table(survival_test$vital_status) -->
-
-<!-- # Calculate the percentage of zeros and ones -->
-<!-- test_percent_zeros <- round((counts_test[1] / sum(counts_test)) * 100, 2) -->
-<!-- test_percent_ones <- round((counts_test[2] / sum(counts_test)) * 100, 2) -->
-
-<!-- counts_train <- table(survival_train$vital_status) -->
-
-<!-- # Calculate the percentage of zeros and ones -->
-<!-- train_percent_zeros <- round((counts_train[1] / sum(counts_train)) * 100, 2) -->
-<!-- train_percent_ones <- round((counts_train[2] / sum(counts_train)) * 100, 2) -->
-
-<!-- # Create a dataframe to store the comparison -->
-<!-- comparison_test_train_data <- data.frame( -->
-<!--   Dataframe = c("survival_test", "survival_train"), -->
-<!--   Alive = c(test_percent_zeros, train_percent_zeros), -->
-<!--   Dead = c(test_percent_ones, train_percent_ones) -->
-<!-- ) -->
-
-<!-- comparison_test_train_data -->
-
-<!-- # Save the table as a CSV file in the "Results" directory -->
-<!-- write.csv(comparison_test_train_data, file = "Results_CGGA/comparison_test_train_data.csv", row.names = FALSE) -->
-
-<!-- ``` -->
-
-<!-- # Test the best model on the train data -->
-
-<!-- ```{r Test_the_best_model_on_the_train_data} -->
-
-<!-- # Construct a risk score based on the linear predictor on the train data -->
-<!-- a_survival_probabilities_train <- predict(fit, newdata = subset(genes_expression_train, select = best_model_coefficients$ensembl_gene_id), type = "lp") -->
-
-<!-- # Categorize individuals of the test data based on the median -->
-<!-- risk_groups <- ifelse(a_survival_probabilities_train > median(a_survival_probabilities_train), "High", "Low") -->
-
-<!-- # Kaplan-Meier com a separação por High/ Low -->
-<!-- fit_surv <- survfit(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups) -->
-<!-- survdiff(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups) -->
-<!-- survdiff_output_train_data <- capture.output(survdiff(Surv(survival_train$days, survival_train$vital_status) ~ risk_groups)) -->
-
-<!-- plot_train_data <- ggsurvplot(fit_surv, data = survival_train, title = "Kaplan-Meier Curves by Risk Status (train data)", legend.title = "Group", pval = TRUE) -->
-<!-- plot_train_data$plot -->
-
-
-<!-- # Write the captured output to a file -->
-<!-- writeLines(survdiff_output_train_data, "Results_CGGA/survdiff_output_train_data.txt") -->
-
-<!-- # Save plot -->
-<!-- ggsave(filename = "Results_CGGA/plot_high_low_risk_train_data.pdf", plot = plot_train_data$plot, width = 6, height = 4) -->
-
-<!-- ``` -->
-
-<!-- # Kaplan-meier for some genes -->
-
-<!-- ```{r Snapshot_packages, results = 'hide', message=FALSE, warning=FALSE} -->
-
-
-<!-- # Assuming your dataframe is named df -->
-
-<!-- # Define the gene to search for -->
-<!-- gene_to_search <- "ENSG00000167779" -->
-
-<!-- # Use grep to find the column that starts with the gene name -->
-<!-- matching_column <- grep(paste0("^", gene_to_search, "\\."), colnames(genes_expression)) -->
-
-<!-- # Check if a match is found -->
-<!-- if (length(matching_column) > 0) { -->
-<!--   print(paste("Column found:", colnames(genes_expression)[matching_column])) -->
-<!-- } else { -->
-<!--   print("Gene not found.") -->
-<!-- } -->
-
-<!-- # RPS27A = ENSG00000143947.14 -->
-<!-- # LOXL1 = ENSG00000129038.16 -->
-<!-- # IGFBP6 = ENSG00000167779.9 -->
-
-<!-- gene_of_interest <- genes_expression$ENSG00000167779.9 # -->
-
-
-<!-- # Categorize individuals  based on the median -->
-<!-- risk <- ifelse(gene_of_interest > median(gene_of_interest), "High", "Low") -->
-
-<!-- # Kaplan-Meier com a separação por High/ Low -->
-<!-- fit_surv <- survfit(Surv(survival_data$days/365.25, survival_data$vital_status) ~ risk) -->
-<!-- survdiff(Surv(survival_data$days/365.25, survival_data$vital_status) ~ risk) -->
-
-<!-- survdiff_output <- capture.output(survdiff(Surv(survival_data$days/365.25, survival_data$vital_status) ~ risk)) -->
-<!-- plot <- ggsurvplot(fit_surv, -->
-<!--                    data = survival_data, -->
-<!--                    title = "Kaplan-Meier Curves by Risk Status", -->
-<!--                    xlab = "Time (years)", -->
-<!--                    legend.title = "Group", -->
-<!--                    pval = TRUE) -->
-<!-- plot$plot -->
-
-<!-- ``` -->
-
+```
