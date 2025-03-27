@@ -288,12 +288,18 @@ compute_significant_variable_names <- memoise::memoise(
 # Call the memoised function
 significant_variable_names <- compute_significant_variable_names(seeds, genes_expression, survival_data)
 
+# Initialize list to store importance_rsf
+importance_rsf_list <- list()
+
 # Loop over best_alpha values
 for (alpha in best_alpha_values) {
   logger::log_info("Running analysis for best_alpha: {alpha}")
   
   # Create dataframes to store metrics for this alpha
   c_index_df <- create_metrics_dataframes(seeds, as.character(thresholds_list))
+  
+  # Placeholder to store importance_rsf values across seeds
+  alpha_importance_list <- list()
   
   for (i in seeds) {
     logger::log_info("Running analysis for seed: {i} and best_alpha: {alpha}")
@@ -312,7 +318,13 @@ for (alpha in best_alpha_values) {
     survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
     
     # Fit models for this alpha
-    models_coefficients <- fit_RSF(genes_expression_train, survival_object_train, alpha, survival_train, thresholds_list)
+    RSF_fit <- fit_RSF(genes_expression_train, survival_object_train, alpha, survival_train, thresholds_list)
+    
+    # Save importance_rsf for this seed
+    alpha_importance_list[[as.character(i)]] <- RSF_fit$importance_rsf
+    
+    models_coefficients <- RSF_fit$coefficients
+    
     
     a <- which(seeds == i)
     for (j in as.character(thresholds_list)) {
@@ -326,12 +338,20 @@ for (alpha in best_alpha_values) {
   
   # Store results for this alpha
   c_index_results[[as.character(alpha)]] <- apply(c_index_df, 1, mean, na.rm = TRUE)
+  
+  # Store importance_rsf values for this alpha
+  importance_rsf_list[[as.character(alpha)]] <- alpha_importance_list
 }
 
-# Prepare data for plotting
-plot_data <- data.frame()
+# write on the chunk end time file
+log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chunk_times_log.txt")
+```
 
-# Create a combined data frame for plotting
+# Make the plots
+
+```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
+
+# Prepare data for plotting
 plot_data <- data.frame()
 
 for (alpha in best_alpha_values) {
@@ -364,6 +384,49 @@ plot_all <- ggplot(plot_data, aes(x = Threshold, y = C_Index, color = Alpha, gro
 ggsave(filename = "Results/plot_thresholds.pdf", plot = plot_all, width = 6, height = 4)
 # write on the chunk end time file
 
-log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chunk_times_log.txt")
+
+# Plot a the density distribution of the VIMP for each alpha value
+
+# Combine all importance_rsf values into a single data frame
+importance_combined <- data.frame()
+
+for (alpha in names(importance_rsf_list)) {
+  for (seed in names(importance_rsf_list[[alpha]])) {
+    imp_df <- importance_rsf_list[[alpha]][[seed]]
+    
+    if (!is.null(imp_df) && nrow(imp_df) > 0) {
+      # Ensure 'importance' and optional 'gene_id' columns exist
+      imp_df$Alpha <- alpha
+      imp_df$Seed <- seed
+      importance_combined <- rbind(importance_combined, imp_df)
+    }
+  }
+}
+
+# Optional: Remove zero importances (commonly added by RSF for non-selected features)
+importance_combined <- importance_combined %>% filter(importance > 0)
+
+# Convert Alpha to a factor for ordered plotting (optional)
+importance_combined$Alpha <- factor(importance_combined$Alpha)
+
+# Plot: Faceted density plots (one per alpha)
+ggplot(importance_combined, aes(x = importance, fill = Alpha)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~ Alpha, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Distribution of Feature Importances Across Seeds",
+    x = "Importance Score",
+    y = "Density"
+  ) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+
+log_chunk_end_time("Make the plots", log_file = "chunk_times_log.txt")
+
+
 
 ```
