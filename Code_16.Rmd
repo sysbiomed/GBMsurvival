@@ -75,6 +75,8 @@ library(qvalue)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 library(enrichplot)
+library(ReactomePA)
+library(STRINGdb)
 library(pathview)
 library(UpSetR)
 library(rsample)
@@ -285,7 +287,7 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") #"SIS", "ISIS", "CausalForest+Cox",
 
-best_alpha <- 0.5
+best_alpha <- 0
 n_seeds <- 10
 
 # Define the seeds for the iterations
@@ -614,7 +616,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") # "CausalForest+Cox", "SIS", "ISIS"
 
-best_alpha <- 0.5
+best_alpha <- 0
 n_seeds_all_equal <- 1
 
 # Define the seeds for the iterations

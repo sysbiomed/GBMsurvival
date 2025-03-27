@@ -230,7 +230,9 @@ for (k in thresholds_list) {
 
 
   # Return the dataframe and the fitted models
-  return(c(models_coefficients = models_coefficients, importance_rsf = importance_rsf))
+  return(list(coefficients = models_coefficients,
+              importance = as.numeric(importance_rsf)
+  ))
 
 }
 
