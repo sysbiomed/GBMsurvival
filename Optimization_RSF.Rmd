@@ -104,7 +104,6 @@ log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo
 fun_source("Functions/Data_preparation.R")
 fun_source("Functions/Model_evaluation.R")
 fun_source("Functions/Model_fitting.R")
-fun_source("Functions/Rank_product_test.R")
 
 # write on the chunk end time file
 log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
@@ -115,8 +114,8 @@ log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
 ```{r Folder_to_store_results}
 
 # Ensure the 'Results' directory exists
-if (!dir.exists("Results")) {
-  dir.create("Results")
+if (!dir.exists("RSF_Optimization_Results")) {
+  dir.create("RSF_Optimization_Results")
 }
 
 # write on the chunk end time file
@@ -129,26 +128,61 @@ log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
 # Cache to use in memoise
 cd <- cachem::cache_disk(here::here(".", "memoise-cache"), max_size = 3 * 1024^3)
 
-download_data <- memoise::memoise(
-  function() {
-    query_RNA <- TCGAbiolinks::GDCquery(
-      project = c("TCGA-GBM", "TCGA-LGG"),
-      data.category = "Transcriptome Profiling",
-      data.type = "Gene Expression Quantification",
-      workflow.type = "STAR - Counts",
-      experimental.strategy = ("RNA-Seq")
-    )
-    # Check if files exist before downloading
-    if (!dir.exists("GDCdata")) {
-      TCGAbiolinks::GDCdownload(query = query_RNA)
-    }
-    
-    TCGAbiolinks::GDCprepare(query = query_RNA)  
-  },
-  cache = cd
-)
+# download_data <- memoise::memoise(
+#   function() {
+#     query_RNA <- TCGAbiolinks::GDCquery(
+#       project = c("TCGA-GBM", "TCGA-LGG"),
+#       data.category = "Transcriptome Profiling",
+#       data.type = "Gene Expression Quantification",
+#       workflow.type = "STAR - Counts",
+#       experimental.strategy = ("RNA-Seq")
+#     )
+#     # Check if files exist before downloading
+#     if (!dir.exists("GDCdata")) {
+#       TCGAbiolinks::GDCdownload(query = query_RNA)
+#     }
+# 
+#     TCGAbiolinks::GDCprepare(query = query_RNA)
+#   },
+#   cache = cd
+# )
+# 
+# TCGA_RNA <- download_data()
+# saveRDS(TCGA_RNA, file = "TCGA_RNA.rds")
 
-TCGA_RNA <- download_data()
+library(googledrive)
+
+# Ensure that we don't use authentication (for public files)
+drive_deauth()
+
+# Now download the file directly
+drive_download(as_id("1UkGI-yjHDu_HQFL4dmwW-T9vde2JnD3J"), 
+               path = "TCGA_RNA.rds", 
+               overwrite = TRUE)
+
+TCGA_RNA <- readRDS("TCGA_RNA.rds")
+
+# query_RNA <- TCGAbiolinks::GDCquery(
+#   project = c("TCGA-GBM", "TCGA-LGG"),
+#   data.category = "Transcriptome Profiling",
+#   data.type = "Gene Expression Quantification",
+#   workflow.type = "STAR - Counts",
+#   experimental.strategy = "RNA-Seq"
+# )
+# 
+# if (!dir.exists("GDCdata")) {  
+#   TCGAbiolinks::GDCdownload(query = query_RNA)  
+# }
+# 
+# download_data <- memoise::memoise(
+#   function() {
+#     TCGAbiolinks::GDCprepare(query = query_RNA)  # ✅ This is the only step cached
+#   },
+#   cache = cd  # ✅ Persistent caching
+# )
+# 
+# TCGA_RNA <- download_data()
+
 
 # write on the chunk end time file
 log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
@@ -250,10 +284,11 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 
 # Define the range of best_alpha values
 best_alpha_values <- c(0, 0.5, 1)
+#best_alpha_values <- c(0)
 
 # Define thresholds and seeds
-#thresholds_list <- c(0.0006, 0.001)
-thresholds_list <- seq(0.0006, 0.002, by = 0.0002)
+thresholds_list <- c(0.0006)
+#thresholds_list <- seq(0.0006, 0.002, by = 0.0002)
 n_seeds <- 10
 seeds <- seq(1, n_seeds, by = 1)
 
@@ -321,7 +356,7 @@ for (alpha in best_alpha_values) {
     RSF_fit <- fit_RSF(genes_expression_train, survival_object_train, alpha, survival_train, thresholds_list)
     
     # Save importance_rsf for this seed
-    alpha_importance_list[[as.character(i)]] <- RSF_fit$importance_rsf
+    alpha_importance_list[[as.character(i)]] <- RSF_fit$importance
     
     models_coefficients <- RSF_fit$coefficients
     
@@ -349,7 +384,7 @@ log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chu
 
 # Make the plots
 
-```{r Fit_and_Explore_the_Models_different, message=FALSE, warning=FALSE}
+```{r Make_the_plots, message=FALSE, warning=FALSE}
 
 # Prepare data for plotting
 plot_data <- data.frame()
@@ -381,7 +416,7 @@ plot_all <- ggplot(plot_data, aes(x = Threshold, y = C_Index, color = Alpha, gro
   theme_minimal()
 
 
-ggsave(filename = "Results/plot_thresholds.pdf", plot = plot_all, width = 6, height = 4)
+ggsave(filename = "RSF_Optimization_Results/plot_thresholds.pdf", plot = plot_all, width = 6, height = 4)
 # write on the chunk end time file
 
 
@@ -391,32 +426,40 @@ ggsave(filename = "Results/plot_thresholds.pdf", plot = plot_all, width = 6, hei
 importance_combined <- data.frame()
 
 for (alpha in names(importance_rsf_list)) {
-  for (seed in names(importance_rsf_list[[alpha]])) {
-    imp_df <- importance_rsf_list[[alpha]][[seed]]
-    
-    if (!is.null(imp_df) && nrow(imp_df) > 0) {
-      # Ensure 'importance' and optional 'gene_id' columns exist
-      imp_df$Alpha <- alpha
-      imp_df$Seed <- seed
-      importance_combined <- rbind(importance_combined, imp_df)
-    }
-  }
+  flat_values <- unlist(importance_rsf_list[[alpha]])
+  temp_df <- data.frame(
+    importance = flat_values,
+    Alpha = alpha
+  )
+  importance_combined <- rbind(importance_combined, temp_df)
 }
 
 # Optional: Remove zero importances (commonly added by RSF for non-selected features)
-importance_combined <- importance_combined %>% filter(importance > 0)
+#importance_combined <- importance_combined %>% filter(importance > 0.004)
 
 # Convert Alpha to a factor for ordered plotting (optional)
 importance_combined$Alpha <- factor(importance_combined$Alpha)
 
-# Plot: Faceted density plots (one per alpha)
-ggplot(importance_combined, aes(x = importance, fill = Alpha)) +
+plot_vimp <- ggplot(importance_combined, aes(x = importance, fill = Alpha, color = Alpha)) +
+  geom_density(alpha = 0.2, size = 1.2, position = "identity") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  labs(
+    title = "Distribution of Feature VIMP Across 10 Seeds",
+    x = "VIMP Score",
+    y = "Density"
+  )
+
+ggsave(filename = "RSF_Optimization_Results/plot_vimp_density.pdf", plot = plot_vimp, width = 6, height = 4)
+
+plot_vimp_faceted <- ggplot(importance_combined, aes(x = importance, fill = Alpha)) +
   geom_density(alpha = 0.6) +
   facet_wrap(~ Alpha, scales = "free_y") +
   theme_minimal() +
   labs(
-    title = "Distribution of Feature Importances Across Seeds",
-    x = "Importance Score",
+    title = "Distribution of Feature VIMP Across 10 Seeds",
+    x = "VIMP Score",
     y = "Density"
   ) +
   theme(
@@ -424,9 +467,8 @@ ggplot(importance_combined, aes(x = importance, fill = Alpha)) +
     legend.position = "none"
   )
 
+ggsave(filename = "RSF_Optimization_Results/plot_vimp_faceted.pdf", plot = plot_vimp_faceted, width = 8, height = 4)
 
 log_chunk_end_time("Make the plots", log_file = "chunk_times_log.txt")
-
-
 
 ```
