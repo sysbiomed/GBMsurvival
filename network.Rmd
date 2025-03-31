@@ -1,0 +1,926 @@
+---
+title: "Network-based models"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+params:
+  alpha: 0
+  seed: 3
+  partition: 0.7
+  string_cutoff: 500
+  parallel: TRUE
+  # type_measure: "C"
+  type_measure: "deviance"
+  # ---------------------
+  folds: 10
+  min_degree: 0.3
+  s: "lambda.min"
+  nlambda: 500
+  lambda.min.ratio: 0.001
+  limit_xdata: FALSE # FALSE or number of rows
+  cores: 5
+  # interactive: !r interactive()
+  interactive: FALSE
+---
+
+```{r}
+logger::log_info("yada")
+```
+
+
+```{r, eval=FALSE, include=FALSE}
+combine_all <- function(...) {
+  dot_args <- rlang::list2(...)  # Capture the named arguments
+  # Generate all combinations
+  combos <- expand.grid(dot_args, KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+  # Convert rows into a list of named lists
+  lapply(seq_len(NROW(combos)),function(ix) as.list(setNames(combos[ix, ], names(dot_args))))
+}
+
+input_params <- combine_all(
+  string_cutoff = 500,
+  seed = seq(1, 10, by = 1),
+  partition = c(0.7, 0.8),
+  type_measure = c("C", "deviance"),
+  alpha = c(0)
+)
+
+
+dir.create("Results/reports", showWarnings = FALSE)
+
+purrr::iwalk(input_params, \(x, ix) {
+  str_param <- x |> 
+    jsonlite::toJSON(auto_unbox = TRUE) |> 
+    jsonlite::prettify() |> 
+    stringr::str_remove_all("[{}]\n?|(  +)|\"") |> 
+    stringr::str_remove("\n$") |> 
+    stringr::str_replace_all("\n", " ")
+  
+  cli::cli_alert_info("Starting ix '{ix}' with '{str_param}'")
+
+  x <- input_params[[ix]]
+  suffix <- paste(sort(names(x)), x[sort(names(x))], collapse = "_") |> 
+    stringr::str_replace_all(" ", "_")
+  file_name <- glue::glue("Results/reports/network_{suffix}.html")
+  
+  x <- utils::modifyList(list(interactive = FALSE), x)
+
+  cli::cli_alert_info("  Saving to {file_name}")
+    
+  tryCatch({
+    rmarkdown::render("network.Rmd", output_file = file_name, params = x)
+  }, error = function(err) {
+    logger::log_error("Error with rmarkdown call")
+    logger::log_error("str_param {str_param}'")
+    if (inherits(err, "condition")) logger::log_error(err$message)
+    else logger::log_error(logger::skip_formatter(err))
+    lapply(traceback(), \(x) logger::log_error(logger::skip_formatter(x)))
+    logger::log_error("End of error message, continuing -----------------------------------")
+  })
+})
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+cli::start_app()
+# Log to console with colors and file without them
+logger::log_layout(logger::layout_glue_colors)
+logger::log_appender(
+  (function(file, append = TRUE, max_lines = Inf, max_bytes = Inf, max_files = 1L) {
+    function(lines) {
+      if (logger:::needs_stdout()) logger::appender_stdout(lines) else logger::appender_console(lines)
+      logger::appender_file(file, append, max_lines, max_bytes, max_files)(cli::ansi_strip(lines))
+    }
+  })("logger_network.txt")
+)
+
+# CLI calls write to logger file
+logger::log_appender(logger::appender_file(file = "logger_network.txt"), namespace = "cli")
+logger::log_layout(logger::layout_simple, namespace = "cli")
+CLI <- structure(400L, level = "CLI", class = c("loglevel", "integer"))
+logger::log_threshold(CLI, namespace = "cli")
+options(cli.default_handler = function(msg, ..., type = "message") {
+  logger::log_level(CLI, cli::default_app()$inline(msg$args$text), namespace = "cli")
+  cli:::cli_server_default(msg)
+})
+```
+
+```{r, eval=FALSE, include=FALSE}
+renv::install("sysbiomed/glmSparseNet")
+```
+
+##### Load functions to enviroment / init options
+
+```{r}
+box::use(
+  # Auxiliary functions used often (others use double colon)
+  dplyr[select, left_join, mutate, bind_cols],
+  logger[log_info, log_warn, log_fatal],
+  cli[cli_alert_info, cli_alert_danger, cli_alert_warning, cli_alert_success],
+  tictoc[tic, toc],
+  survival[Surv],
+  prodlim[Hist],
+  rlang[`%||%`],
+  
+  # Custom functons for network operations
+  ./Functions/network_utils[
+    string_db_homo_sapiens, string_db_local_cache, my_plot, 
+    calculate.combined.score_cache, buildStringNetwork_cache, memoise_cache
+  ],
+  ./Functions/Data_preparation[
+    splitTestAndTrain,
+  ]
+)
+
+# Parallel cv.glmnet
+doMC::registerDoMC(cores = params$cores)
+cv.glmnet_cache <- memoise::memoise(glmnet::cv.glmnet, cache = memoise_cache)
+```
+
+## Read data {.tabset .tabset-fade}
+
+```{r}
+.raw_gene <- feather::read_feather("Results/genes_expression.feather")
+.raw_surv <- feather::read_feather("Results/survival_data.feather")
+
+# Data structures
+data <- list(
+  raw = left_join(.raw_surv, .raw_gene, by = "patient")
+)
+
+colnames(data$raw) <- data$raw |> colnames() |> stringr::str_replace("[.][0-9]+$", "")
+models <- list()
+```
+
+```{r, echo=FALSE}
+if (!isFALSE(params$limit_xdata)) {
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  cat("🟠🟠🟠 XDATA is BEING LIMITED 🟠🟠🟠\n")
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  cat("🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠\n")
+  data$raw <- data$raw[, seq_len(params$limit_xdata)]
+}
+```
+
+
+### Split data
+
+```{r}
+set.seed(params$seed)
+data$split <- rsample::initial_split(data$raw, prop = params$partition, strata = "vital_status")
+data$train <- list(raw = rsample::training(data$split))
+data$test <- list(raw = rsample::testing(data$split))
+```
+
+```{r, echo=FALSE}
+local({
+  # Check if data split is the same
+  splited <- splitTestAndTrain(.raw_gene, .raw_surv, params$partition, seed_split = params$seed)
+  
+  stopifnot(
+    "Partition is not the same!" = !isFALSE(params$limit_xdata) || all(
+      c(
+        ydata_train = identical(
+          dplyr::tibble(splited$survival_train), 
+          dplyr::select(data$train$raw, patient, vital_status, days)
+        ),
+        xdata_train = identical(
+          dplyr::tibble(splited$expression_train), 
+          setNames(dplyr::select(data$train$raw, -vital_status, -days), colnames(splited$expression_train))
+        ),
+        # ---------------------------------------------------------------------------
+        ydata_test = identical(
+          dplyr::tibble(splited$survival_test), 
+          dplyr::select(data$test$raw, patient, vital_status, days)
+        ),
+        xdata_test = identical(
+          dplyr::tibble(splited$expression_test), 
+          setNames(dplyr::select(data$test$raw, -vital_status, -days), colnames(splited$expression_test))
+        )
+      )
+    )
+  )
+})
+```
+
+
+### Build networks
+
+#### Correlation from training data
+
+```{r}
+# data$cor <- glmSparseNet:::run.cache(
+#   glmSparseNet::networkCorParallel, 
+#   xdata = data$train$raw |>
+#     dplyr::select(-patient, -vital_status, -days) |> 
+#     as.matrix(),
+#   n.cores = params$n.cores
+# ) |> 
+#   abs()
+```
+
+
+#### Build PPI network
+
+```{r ppi_network}
+data$ppi <- local({
+  local_fun <- memoise::memoise(
+    function(cutoff = params$string_cutoff) {
+      string_db_homo_sapiens()
+      ppi_raw <- string_db_local_cache()
+      calculate.combined.score_cache(ppi_raw, score_threshold = cutoff, remove.text = TRUE)
+    },
+    cache = memoise_cache
+  )
+  
+  ppi_data <- local_fun(params$string_cutoff)
+  buildStringNetwork_cache(ppi_data, "ensembl")
+})
+```
+
+Fill in the blanks of non-existing genes in (filtered) StringDB.
+
+```{r fill_ppi}
+data$full_ppi <- local({
+  different_names <- colnames(data$raw)[
+    !colnames(data$raw) %in% 
+      c("patient", "vital_status", "days", colnames(data$ppi))
+  ]
+  new_size <- length(different_names) + ncol(data$ppi)
+  full_ppi <- Matrix::sparseMatrix(
+    i = c(), 
+    j = c(), 
+    x = numeric(0L),
+    dims = c(new_size, new_size)
+  )
+  full_ppi[seq_len(nrow(data$ppi)), seq_len(ncol(data$ppi))] <- data$ppi != 0
+  colnames(full_ppi) <- c(colnames(data$ppi), different_names)
+  rownames(full_ppi) <- colnames(full_ppi)
+  
+  gene_names_original <- data$raw |> 
+    colnames() |>
+    purrr::discard(~.x %in% c("patient", "vital_status", "days"))
+  
+  # Return original order of data$raw
+  full_ppi[gene_names_original, gene_names_original]
+})
+```
+
+
+### Prepare `xdata` & `ydata`
+
+```{r prepare_train_data}
+data$train$xdata <- data$train$raw |>
+  select(-patient, -vital_status, -days) |> 
+  as.matrix()
+
+data$train$ydata <- data$train$raw |> 
+  select(vital_status, days) |> 
+  (\(x) survival::Surv(x$days, x$vital_status))()
+```
+
+#### Create folds for k-fold cross-validation
+
+```{r create_folds}
+data$train$foldid <- local({
+  set.seed(params$seed * 1000 + 331) # slightly differnt seed from original to ensure no conflicts
+  folds <- rsample::vfold_cv(data$train$raw, v = params$folds, strata = "vital_status")
+  unlist(
+    lapply(
+      folds$splits,
+      \(x) {
+        setNames(
+          setdiff(seq_len(nrow(data$train$raw)), x$in_id), 
+          rep(gsub("Fold", "", x$id) |> as.numeric(), nrow(data$train$raw) - length(x$in_id))
+        )
+      }
+    )
+  ) |> 
+    sort() |> 
+    names() |> 
+    as.numeric()
+})
+```
+
+## Train models
+
+### GLMNET {.tabset .tabset-fade}
+
+#### Training
+
+```{r fit_glment_models}
+# Reports only use 1 alpha
+glmnet_spec <- local({
+  if (params$interactive) {
+    list(
+      lasso = list(1, "Lasso"), 
+      en_0_8 = list(0.8, "Elastic net (0.8)"), 
+      en_0_5 = list(0.5, "Elastic net (0.5)")
+    )
+  } else {
+    .id <- switch(
+      format(params$alpha),
+      "1" = "lasso",
+      "0" = "ridge",
+      sprintf("en_%s", gsub("[.]", "_", format(params$alpha, scientific = FALSE)))
+    )
+    
+    .label <- switch(
+      format(params$alpha),
+      "1" = "Lasso",
+      "0" = "Ridge",
+      sprintf("Elastic Net (%s)", format(params$alpha, scientific = FALSE))
+    )
+    
+    rlang::set_names(list(list(params$alpha,  .label)), .id)
+  }
+})
+
+glmnet_models <- purrr::map(
+  glmnet_spec,
+  \(x) {
+    x_alpha = x[[1]]
+    x_label = x[[2]]
+    cli_alert_info("Training model for '{x_label}'...")
+    tic()
+
+    new_model <- cv.glmnet_cache(
+      data$train$xdata,
+      data$train$ydata,
+      nlambda = params$nlambda,
+      lambda.min.ratio = params$lambda.min.ratio,
+      #
+      type.measure = params$type_measure %||% "deviance",
+      alpha = x_alpha,
+      family = "cox",
+      parallel = params$parallel,
+      foldid = data$train$foldid
+    )
+    cli_alert_success(
+      glue::glue(
+        .sep = " ",
+        "'{x_label}' model trained in",
+        toc(quiet = TRUE)$callback_msg,
+        "with",
+        sum(coef(models$lasso, s = "lambda.min") != 0),
+        "non-zero coefficients"
+      )
+    )
+    attr(new_model, "alpha") <- x_alpha
+    attr(new_model, "penalty") <- NULL
+    attr(new_model, "covariates") <- colnames(data$train$xdata)
+    attr(new_model, "label") <- x_label
+    invisible(gc())
+    new_model
+  }
+)
+invisible(gc())
+```
+
+```{r print_glmnet, echo=FALSE, results='asis'}
+purrr::iwalk(glmnet_models, \(.x, .i) {
+  cat(glue::glue("\n#### {attributes(.x)$label} { if (.i == names(glmnet_models)[[1]]) '{ .active }' else '' }\n\n"))
+  my_plot(.x)
+  cat("\n\n")
+})
+```
+
+```{r assign_models, include=FALSE}
+models <- glmnet_models
+```
+
+
+### Network models  {.tabset .tabset-fade}
+
+```{r prepare_data, echo=FALSE}
+# Prepares data explicitly
+
+data$covariates <- list(
+  orphan = colnames(data$full_ppi),
+  orphan_partial = intersect(colnames(data$ppi), colnames(data$raw)),
+  hub = colnames(data$full_ppi),
+  hub_partial = intersect(colnames(data$ppi), colnames(data$raw))
+)
+
+data$penalty <- local({
+  calc_penalty <- \(x, fun, min_degree = params$min_degree) fun(Matrix::colSums(x) + Matrix::rowSums(x)) + min_degree
+ 
+  partial_covariates <- data$covariates$orphan_partial
+  list(
+    orphan = calc_penalty(data$full_ppi, glmSparseNet::orphanHeuristic),
+    orphan_partial = calc_penalty(data$full_ppi[partial_covariates, partial_covariates], glmSparseNet::orphanHeuristic),
+    hub = calc_penalty(data$full_ppi, glmSparseNet::hubHeuristic),
+    hub_partial = calc_penalty(data$full_ppi[partial_covariates, partial_covariates], glmSparseNet::hubHeuristic)
+  )
+})
+```
+
+#### Train models
+
+```{r network_models}
+# Network-based models training
+
+new_models <- purrr::map(
+  rlang::set_names(c("hub", "hub_partial", "orphan", "orphan_partial")),
+  \(ix) {
+    x_label <- gsub("_", " ", ix) |> 
+      tools::toTitleCase() |> 
+      stringr::str_replace("Partial", "(partial)")
+    
+    cli_alert_info("Training model for '{ix}'...")
+    tic()
+    new_model <- cv.glmnet_cache(
+      data$train$xdata[, data$covariates[[ix]]],
+      data$train$ydata,
+      penalty = data$penalty[[ix]],
+      alpha = params$alpha,
+      nlambda = params$nlambda,
+      lambda.min.ratio = params$lambda.min.ratio,
+      type.measure = params$type_measure %||% "deviance",
+      family = "cox",
+      foldid = data$train$foldid,
+      parallel = params$parallel
+    )
+    invisible(gc())
+    attr(new_model, "alpha") <- params$alpha
+    attr(new_model, "penalty") <- data$penalty[[ix]]
+    attr(new_model, "covariates") <- data$covariates[[ix]]
+    attr(new_model, "label") <- x_label
+    
+    cli_alert_success(
+      "'{x_label}' model trained in {toc(quiet = TRUE)$callback_msg} with {sum(coef(new_model, s = 'lambda.min') != 0)} non-zero coefficients"
+    )
+    
+    new_model
+  }
+)
+
+models <- Reduce(
+  x = names(new_models),
+  f = \(u, x) {
+    u[[x]] <- new_models[[x]]
+    u
+  },
+  init = models
+)
+```
+
+#### Penalty's histogram
+
+```{r, echo=FALSE}
+penalty_plot_data <- data$penalty |> 
+  purrr::imap(\(x, i) tibble::tibble(penalty = x, network = i)) |> 
+  purrr::list_rbind()
+```
+
+```{r penalty_histogram, echo = FALSE, warning=FALSE}
+penalty_plot_data |> 
+  ggplot2::ggplot() +
+  ggplot2::geom_histogram(
+    ggplot2::aes(x = penalty, fill = network), 
+    binwidth = .5, 
+    alpha = 0.5, 
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_y_continuous(trans = "log10") +
+  ggplot2::ylab("(log10)") +
+  ggplot2::facet_wrap(~network) +
+  ggplot2::theme_minimal()
+```
+
+#### Penalty's density
+
+```{r penalty_density_plot, echo=FALSE}
+penalty_plot_data |> 
+  ggplot2::ggplot() +
+  ggplot2::geom_density(ggplot2::aes(x = penalty, fill = network), alpha = 0.5, kernel = "rectangular") +
+  ggplot2::scale_x_continuous(trans = "log10") +
+  ggplot2::xlab("penalty (log10)") +
+  ggplot2::facet_grid(cols = ggplot2::vars(network), scales = "free") + 
+  ggplot2::theme_minimal()
+```
+
+```{r plot_network, results='asis'}
+purrr::iwalk(new_models, \(.x, .i) {
+  cat(glue::glue("\n#### {attributes(.x)$label} {if (.i == names(new_models)[[1]]) '{ .active }' else  ''}\n\n"))
+  my_plot(.x)
+  cat("\n\n")
+})
+```
+
+
+## Test  {.tabset .tabset-fade}
+
+- C-Index
+- Log-Rank test
+- IBS
+
+```{r test_prepare}
+data$test$xdata <- data$test$raw |>
+  dplyr::select(-patient, -vital_status, -days) |> 
+  as.matrix()
+
+data$test$ydata <- data$test$raw |> 
+  dplyr::select(vital_status, days) |> 
+  (\(x) survival::Surv(x$days, x$vital_status))()
+```
+
+### Calculate metrics
+
+```{r test_calc_metrics}
+results_l <- lapply(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    
+    if (!any(coef(fit, s = "lambda.min") != 0)) {
+      return(
+        tibble::tibble(
+          model = x, 
+          label = attr(fit, "label"), 
+          c_index = NA, 
+          log_rank_pvalue = NA,
+          ibs = NA
+        )
+      )
+    }
+    
+    # C-Index -----------------------------------------------------------------
+    covariates <- attr(fit, "covariates")
+    prob_test <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "response")
+    c_index <- survival::concordance(data$test$ydata ~ prob_test, reverse=TRUE)$concordance
+    
+    risk_scores <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    # Log-Rank ----------------------------------------------------------------
+    
+    log_rank_result <- if (length(unique(risk_group)) == 2L) {
+      survival::survdiff(data$test$ydata ~ risk_group) 
+    } else {
+      list(pvalue = NA)
+    }
+
+    # IBS ---------------------------------------------------------------------
+    
+    fit_coef <- coef(fit, s = "lambda.min") |> 
+      magrittr::extract(TRUE, 1) |> 
+      purrr::discard(~.x == 0)
+    
+    ibs_value <- tryCatch({
+      local_data <- bind_cols(
+        data$test$ydata,
+        data$test$xdata[, names(fit_coef)]
+      )
+     
+      if (length(fit_coef) <= 1000) {
+        fit_coxph <- survival::coxph(
+          formula = Surv(time, status) ~ .,
+          data = local_data,
+          init = fit_coef,
+          iter.max = 0,
+          x = TRUE
+        )  
+        
+        ibs_result <- pec::pec(
+          object = list("Cox" = fit_coxph),
+          formula = Surv(time, status) ~ 1,
+          data = local_data,
+          times = sort(unique(local_data$time)), # time points for evaluation
+          start = min(local_data$time),
+          maxtime = max(local_data$time)
+        )
+        pec::crps(ibs_result)[2]
+      } else {
+        NA
+      }
+    }, error = function(err) NA)
+        
+    # Result ------------------------------------------------------------------
+    
+    tibble::tibble(
+      model = x, 
+      label = attr(fit, "label"), 
+      nzeros = length(fit_coef),
+      c_index = c_index, 
+      log_rank_pvalue = log_rank_result$pvalue,
+      ibs = ibs_value
+    )
+  }
+)
+results <- purrr::list_rbind(results_l)
+  
+```
+### 👑 Results {.active}
+
+```{r test_results, echo=FALSE}
+results |> knitr::kable()
+```
+
+### C-Index vs. Log-Rank test
+
+```{r test_cindex_log_rank, echo=FALSE}
+results |> 
+  dplyr::mutate(label = sprintf("%s\n(p: %.3f, c: %.3f)", label, log_rank_pvalue, c_index)) |>
+  ggplot2::ggplot(ggplot2::aes(x = c_index, y = log_rank_pvalue, label = label)) +
+  ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray") + 
+  ggplot2::geom_point(color = "purple") +
+  ggplot2::xlim(0,1) + 
+  ggplot2::ylim(0, 1) +
+  ggplot2::xlab("C-Index") +
+  ggplot2::ylab("Log-rank p-value") +
+  ggplot2::geom_hline(yintercept = 0.05, linetype = "dashed", color = "red", alpha = .4) +
+  ggplot2::annotate("text", x = 0, y = 0.045, label = "p-value ≤ 0.05", hjust = 0, vjust = 1, color = "red", alpha = .4) +
+  ggplot2::theme_minimal()
+```
+
+### C-Index vs. IBS
+
+```{r test_cindex_ibs, echo=FALSE}
+results |> 
+  dplyr::mutate(label = sprintf("%s\n(ibs: %.3f, cix: %.3f)", label, ibs, c_index)) |>
+  ggplot2::ggplot(ggplot2::aes(x = c_index, y = ibs, label = label)) +
+  ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray", max.overlaps = 20) + 
+  ggplot2::geom_point(color = "purple") +
+  ggplot2::xlab("C-Index") +
+  ggplot2::ylab("IBS") +
+  ggplot2::theme_minimal()
+```
+
+```{r test_km, echo=FALSE}
+km_result <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+  
+    if (!any(coef(fit, s = "lambda.min") != 0)) return(NULL)
+
+    covariates <- attr(fit, "covariates")
+    
+    risk_scores <- stats::predict(fit, newx = data$test$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    if (length(unique(risk_group)) == 2L) {
+      local_data <- select(data$test$raw, time = "days", status = "vital_status") |> 
+        mutate(risk_group = risk_group)
+      surv_fit <- survival::survfit(survival::Surv(time, status) ~ risk_group, data = local_data)
+      survminer::ggsurvplot(
+        surv_fit, 
+        data = local_data,
+        pval = TRUE,                 # Add log-rank test p-value
+        conf.int = TRUE,             # Add confidence intervals
+        risk.table = TRUE,           # Add risk table below the plot
+        palette = c("#E7B800", "#2E9FDF"), # Customize colors
+        xlab = "Time (days)", 
+        ylab = "Survival Probability",
+        legend.title = "Risk",
+        legend.labs = c("High", "Low"), # Customize legend labels
+        ggtheme = ggplot2::theme_minimal()          # Use a minimal theme
+      )
+    }
+  }
+)
+```
+
+### KM {.tabset .tabset-fade}
+
+```{r test_km_plot, echo=FALSE, results='asis'}
+for (x in names(km_result)) {
+  if (is.null(km_result[[x]])) next
+  cat("#### ", x, "\n\n")
+  print(km_result[[x]])
+  cat("\n\n")
+}
+```
+
+## All {.tabset .tabset-fade}
+
+```{r all_prepare}
+data$all <- list(
+  xdata = data$raw |>
+    dplyr::select(-patient, -vital_status, -days) |> 
+    as.matrix(),
+  ydata = data$raw |> 
+    dplyr::select(vital_status, days) |> 
+    (\(x) survival::Surv(x$days, x$vital_status))()  
+)
+```
+
+### Calculate results
+
+```{r all_calculate_metrics}
+results_all <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    
+    if (!any(coef(fit, s = "lambda.min") != 0)) {
+      return(
+        tibble::tibble(
+          model = x, 
+          label = attr(fit, "label"), 
+          c_index = NA, 
+          log_rank_pvalue = NA,
+          ibs = NA
+        )
+      )
+    }
+    
+    # C-Index -----------------------------------------------------------------
+    
+    covariates <- attr(fit, "covariates")
+    prob_test <- stats::predict(fit, newx = data$all$xdata[, covariates], s = "lambda.min", type = "response")
+    c_index <- survival::concordance(data$all$ydata ~ prob_test, reverse=TRUE)$concordance
+    
+    # Log-rank ----------------------------------------------------------------
+    
+    risk_scores <- stats::predict(fit, newx = data$all$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    log_rank_result <- if (length(unique(risk_group)) == 2L) {
+      survival::survdiff(data$all$ydata ~ risk_group) 
+    } else {
+      list(pvalue = 1)
+    }
+    
+    # IBS ---------------------------------------------------------------------
+    
+    fit_coef <- coef(fit, s = "lambda.min") |> 
+      magrittr::extract(TRUE, 1) |> 
+      purrr::discard(~.x == 0)
+    
+    ibs_value <- tryCatch({
+      local_data <- bind_cols(
+        data$all$ydata,
+        data$all$xdata[, names(fit_coef)]
+      )
+  
+      if (length(fit_coef) <= 1000) {
+        fit_coxph <- survival::coxph(
+          formula = Surv(time, status) ~ .,
+          data = local_data[,1:5000],
+          init = fit_coef[1:4998],
+          iter.max = 0,
+          x = TRUE
+        )
+    
+        ibs_result <- pec::pec(
+          object = list("Cox" = fit_coxph),
+          formula = Surv(time, status) ~ 1,
+          data = local_data,
+          times = sort(unique(local_data$time)), # time points for evaluation
+          start = min(local_data$time),
+          maxtime = max(local_data$time)
+        )
+        
+        pec::crps(ibs_result)[2]
+      } else {
+        NA
+      }
+    }, error = function(errr) NA)
+    
+    # Result ------------------------------------------------------------------
+    
+    tibble::tibble(
+      model = x,
+      label = attr(fit, "label"),
+      c_index = c_index,
+      log_rank_pvalue = log_rank_result$pvalue,
+      ibs = ibs_value
+    )
+  }
+) |> 
+  purrr::list_rbind()
+```
+
+### Results {.active}
+
+```{r all_results_table, echo=FALSE}
+results_all |> knitr::kable()
+```
+
+
+### C-Index vs. Log-Rank test
+
+```{r all_cindex_log_rank, echo=FALSE}
+results_all |> 
+  dplyr::mutate(label = sprintf("%s\n(p: %.2g, c: %.3f)", label, log_rank_pvalue, c_index)) |>
+  ggplot2::ggplot(ggplot2::aes(x = c_index, y = log_rank_pvalue, label = label)) +
+  ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray") + 
+  ggplot2::geom_point(color = "purple") +
+  # ggplot2::xlim(0, 1) + 
+  # ggplot2::ylim(0, 1) +
+  ggplot2::xlab("C-Index") +
+  ggplot2::ylab("Log-rank p-value") +
+  ggplot2::geom_hline(yintercept = 0.05, linetype = "dashed", color = "red", alpha = .4) +
+  ggplot2::annotate("text", x = 0, y = 0.045, label = "p-value ≤ 0.05", hjust = 0, vjust = 1, color = "red", alpha = .4) +
+  ggplot2::theme_minimal()
+```
+
+### C-Index vs. IBS
+
+```{r all_cindex_ibs, echo=FALSE}
+results_all |> 
+  dplyr::mutate(label = sprintf("%s\n(ibs: %.2g, cix: %.3f)", label, ibs, c_index)) |>
+  ggplot2::ggplot(ggplot2::aes(x = c_index, y = ibs, label = label)) +
+  ggrepel::geom_text_repel(min.segment.length = .2, segment.color = "gray") + 
+  ggplot2::geom_point(color = "purple") +
+  # ggplot2::xlim(0, 1) + 
+  # ggplot2::ylim(0, 1) +
+  ggplot2::xlab("C-Index") +
+  ggplot2::ylab("Log-rank p-value") +
+  ggplot2::geom_hline(yintercept = 0.05, linetype = "dashed", color = "red", alpha = .4) +
+  ggplot2::annotate("text", x = 0, y = 0.045, label = "p-value ≤ 0.05", hjust = 0, vjust = 1, color = "red", alpha = .4) +
+  ggplot2::theme_minimal()
+```
+
+
+```{r all_km, echo=FALSE}
+km_result_all <- purrr::map(
+  rlang::set_names(names(models)),
+  \(x) {
+    fit <- models[[x]]
+    
+    if (!any(coef(fit, s = "lambda.min") != 0)) {
+      return(NULL)
+    }
+
+    covariates <- attr(fit, "covariates")
+    
+    risk_scores <- stats::predict(fit, newx = data$all$xdata[, covariates], s = "lambda.min", type = "link")
+    risk_group <- ifelse(risk_scores > median(risk_scores), "High", "Low")
+    
+    if (length(unique(risk_group)) == 2L) {
+      local_data <- select(data$raw, time = "days", status = "vital_status") |> 
+        mutate(risk_group = risk_group)
+      surv_fit <- survival::survfit(survival::Surv(time, status) ~ risk_group, data = local_data)
+      survminer::ggsurvplot(
+        surv_fit, 
+        data = local_data,
+        pval = TRUE,                 # Add log-rank test p-value
+        conf.int = TRUE,             # Add confidence intervals
+        risk.table = TRUE,           # Add risk table below the plot
+        palette = c("#E7B800", "#2E9FDF"), # Customize colors
+        xlab = "Time (days)", 
+        ylab = "Survival Probability",
+        legend.title = "Risk",
+        legend.labs = c("High", "Low"), # Customize legend labels
+        ggtheme = ggplot2::theme_minimal()          # Use a minimal theme
+      )
+    }
+  }
+)
+```
+
+### KM {.tabset .tabset-fade}
+
+```{r all_km_plot, echo=FALSE, results='asis'}
+for (x in names(km_result_all)) {
+  if (is.null(km_result_all[[x]])) next
+  cat("#### ", x, "\n\n")
+  print(km_result_all[[x]])
+  cat("\n\n")
+}
+```
+
+
+## Saving results
+
+```{r saving_test_results, echo=FALSE}
+local({
+  param_hash <- substr(rlang::hash(params[!names(params) %in% "seed"]), 1, 6)
+  file_name <- sprintf("results_h%s_s%d.Rdata", param_hash, params$seed)
+  full_path <- here::here("Results", "network_table", file_name)
+  
+  dir.create(dirname(full_path), showWarnings = FALSE)
+  e = new.env()
+  e$params <- params[!names(params) %in% c("parallel", "cores")]
+  e$results <- results
+  e$results_all <- results_all
+  
+  e$coefs <- purrr::map(models, \(.x) {
+    coef_list <- coef(.x, s = "lambda.min")
+    rownames(coef_list)[coef_list[, 1] != 0]
+  })
+  
+  save(list = ls(e), envir = e, file = full_path)
+  cli_alert_success("Results saved to {full_path}")
+  invisible(NULL)
+})
+```
+
+
+
+
+
+
+
+
+
+

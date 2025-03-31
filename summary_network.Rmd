@@ -1,0 +1,283 @@
+---
+title: "Network Summary"
+output: html_document
+date: "2024-12-13"
+params:
+  hash_id: "hcae30e"
+  digits: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE, eval=FALSE}
+# c(
+#   "hd6357a", "hcae30e", "hedcaec", "h71ce61", "h25d2db", "h17dd08", "h9ea317",
+#   "h5acfdb", "h3ff426", "h8e4929"
+# ) |>
+c("hcae30e", "h17dd08") |> #, "h8e4929") |>
+  purrr::iwalk(\(x, ix) {
+    e <- new.env()
+    load(
+      file = here::here("Results", "network_table", sprintf("results_%s_s1.Rdata", x)), 
+      envir = e, 
+      verbose = FALSE
+    )
+    # file_name <- here::here("Results", "summary_reports", )
+    
+    local_params <- e$params[c("alpha", "partition", "type_measure")]
+    
+    str_param <- e$params |> 
+      jsonlite::toJSON(auto_unbox = TRUE) |> 
+      jsonlite::prettify() |> 
+      stringr::str_remove_all("[{}]\n?|(  +)|\"") |> 
+      stringr::str_remove("\n$") |> 
+      stringr::str_replace_all("\n", " ")
+    
+    cli::cli_alert_info("Starting ix '{ix}' with '{str_param}'")
+    
+    suffix <- paste(sort(names(local_params)), local_params[sort(names(local_params))], collapse = "_") |> 
+      stringr::str_replace_all(" ", "_")
+    file_name <- here::here("Results", "summary_reports", glue::glue("summary_{suffix}.html"))
+    
+    dir.create(dirname(file_name), showWarnings = FALSE)
+  
+    rmarkdown::render(
+      "summary_network.Rmd", 
+      output_file = file_name,
+      params = list(hash_id = x)
+    )
+  })
+
+```
+
+```{r load_results, warning=FALSE, echo=FALSE}
+raw_results <- list.files(
+  here::here("Results", "network_table"),
+  params$hash_id,
+  full.names = TRUE
+) |> purrr::map(\(.x) {
+  e <- new.env()
+  load(.x, envir = e, verbose = FALSE)
+  e$results |> 
+    dplyr::bind_cols(
+      seed = e$params$seed, 
+      alpha = e$params$alpha, 
+      partition = e$params$partition,
+      type_measure = e$params$type_measure
+    ) |> 
+    dplyr::relocate(seed, alpha, .before = 1) |> 
+    dplyr::select(-model)
+}) |> 
+  purrr::list_rbind() |> 
+  tidyr::pivot_longer(c(c_index, log_rank_pvalue, ibs, nzeros), names_to = "metric")
+
+loaded_results <- raw_results |> 
+  dplyr::filter(!is.na(value))
+
+# -----------------------------------------------------------------------------
+summary_results <- loaded_results |> 
+  # dplyr::filter(!is.na(value)) |> 
+  dplyr::group_by(label, metric) |> 
+  dplyr::summarize(
+    min = round(min(value, na.rm = TRUE), digits = params$digits),
+    max = round(max(value, na.rm = TRUE), digits = params$digits),
+    mean = round(mean(value, na.rm = TRUE), digits = params$digits),
+    sd = round(sd(value, na.rm = TRUE), digits = params$digits),
+    median = round(median(value, na.rm = TRUE), digits = params$digits),
+    convergence = sum(!is.na(value)),
+    .groups = "drop"
+  ) |> 
+  dplyr::arrange(metric)
+```
+
+```{r echo=FALSE}
+params_x <- c(
+  loaded_results[1, "alpha"],
+  loaded_results[1, "partition"],
+  loaded_results[1, "type_measure"]
+)
+
+params_x$seeds <- list.files(
+  here::here("Results", "network_table"),
+  params$hash_id,
+  full.names = TRUE
+) |> 
+  stringr::str_extract("_s([0-9]+)\\.Rdata", 1) |> 
+  as.numeric() |> 
+  sort()
+
+str_param <- params_x |> 
+  jsonlite::toJSON(auto_unbox = TRUE) |> 
+  jsonlite::prettify() |> 
+  stringr::str_replace_all(" [ ]+([0-9]+),\n", "\\1, ") |> 
+  stringr::str_replace_all(" [ ]+([0-9]+)\n", " \\1") |> 
+  stringr::str_replace_all("\"seeds\": \\[\n", "\"seeds\": [") |> 
+  stringr::str_replace_all(" +]", "]")
+```
+
+
+### Results for:
+
+```{r echo=FALSE, results='asis'}
+cat("\n```json\n")
+cat(str_param)
+cat("\n")
+cat("\n```\n")
+```
+
+### Tables {.tabset .tabset-fade}
+
+#### Raw
+
+```{r}
+DT::datatable(raw_results)
+```
+
+
+#### Loaded
+
+```{r}
+DT::datatable(loaded_results)
+```
+
+#### Stats {.active}
+
+```{r}
+DT::datatable(summary_results)
+```
+
+### Plots {.tabset .tabset-fade}
+
+```{r}
+loaded_results <- loaded_results |> dplyr::filter(metric != "nzeros")
+```
+
+
+```{r plot, echo=FALSE, results='asis'}
+loaded_results |>
+  dplyr::group_by(metric) |>
+  purrr::pluck("metric") |>
+  unique() |> 
+# c("c_index", "log_rank_pvalue") |>
+  purrr::iwalk( function(metric_x, ix) {
+    median_results <- summary_results |> 
+      dplyr::filter(metric == metric_x) |> 
+      dplyr::select(label, metric, median)
+      
+    gg <- loaded_results |> 
+      dplyr::filter(!is.na(value), metric == metric_x) |> 
+      ggplot2::ggplot(ggplot2::aes(x = metric, y = value)) +
+      ggplot2::theme_minimal() +
+      ggplot2::geom_violin(fill = c(ibs = "orange", c_index = "purple", log_rank_pvalue = "darkgreen")[[metric_x]]) +
+      ggplot2::geom_crossbar(
+        data = median_results,
+        ggplot2::aes(x = metric, y = median, ymin = median, ymax = median),
+        width = 0.7,
+        linewidth = .2
+      ) +
+      ggforce::geom_sina() +
+      ggplot2::stat_summary(fun = mean, geom = "point", shape = 23, size = 4) +
+      #
+      # ggplot2::geom_boxplot(outliers = FALSE) +
+      # ggplot2::geom_boxplot(outlier.colour = "red", outlier.shape = 8, outlier.size = 4) +
+      # ggplot2::scale_fill_brewer(palette = "Dark2") +
+      # ggplot2::geom_jitter(shape = 1, position = ggplot2::position_jitter(0.2), color = "#2f2f2fbb") + 
+      ggplot2::facet_wrap(label~metric, nrow = 1) + 
+      ggplot2::ggtitle(
+        glue::glue("Partition: {params_x$partition} | Alpha: {params_x$alpha} | Type: {params_x$type_measure} ")
+      )
+    
+    cat(sprintf("\n#### %s\n\n", metric_x))
+    print(gg)
+    cat("\n\n")
+  })
+```
+
+### Selected
+
+```{r, echo=FALSE}
+coef_raw_results <- list.files(
+  here::here("Results", "network_table"),
+  params$hash_id,
+  full.names = TRUE
+) |> purrr::map(\(.x) {
+  e <- new.env()
+  load(.x, envir = e, verbose = FALSE)
+  Reduce(
+    \(.u, .y) {
+      dplyr::bind_rows(
+        .u,
+        tibble::tibble(
+          coef_name = e$coefs[[.y]],
+          origin = .y,
+          count = 1,
+          seed = e$params$seed
+        )
+      )
+    },
+    x = names(e$coefs),
+    init = tibble::tibble()
+  )
+}) |>
+  dplyr::bind_rows()
+
+coef_raw_summarized <- coef_raw_results |>
+  dplyr::group_by(coef_name, origin) |>
+  dplyr::summarise(count = sum(count), .groups = "keep")
+
+coef_results <- coef_raw_summarized |> 
+  tidyr::pivot_wider(
+    values_from = "count",
+    names_from = "origin",
+    values_fill = 0
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(subtotal = sum(dplyr::c_across(!tidyselect::last_col()))) |>
+  dplyr::arrange(dplyr::desc(subtotal)) |>
+  dplyr::select(-subtotal)
+```
+
+### Coeficients {.tabset .tabset-fade}
+
+#### Summary
+
+```{r, echo=FALSE}
+knitr::kable(coef_results)
+```
+
+```{r, results='asis', echo=FALSE}
+coef_raw_results$origin |> 
+  unique() |>
+  purrr::walk(\(.x) {
+    cat("####", .x, "\n\n")
+    cat("```\n")
+
+    seeds <- dplyr::filter(coef_raw_results, origin == .x)$seed |> 
+      unique() |>
+      sort()
+    
+    purrr::walk(seeds, \(.y) {
+      cat("# Seed ", .y, "\n")
+      cat(
+        paste0(
+          "c(",
+          paste(
+            "\"",
+            sort(dplyr::filter(coef_raw_results, origin == .x, seed == .y)$coef_name),
+            "\"",
+            collapse = ", ",
+            sep = ""
+          ),
+          ")\n"
+        )
+      )  
+    })
+    
+    
+    cat("```\n\n")    
+  })
+
+```
+
