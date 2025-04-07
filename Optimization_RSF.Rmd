@@ -288,6 +288,8 @@ best_alpha_values <- c(0, 0.5, 1)
 
 # Define thresholds and seeds
 thresholds_list <- c(0.0006)
+#thresholds_list <- c(0.0000001, 0.000001, 0.00001
+thresholds_list <- c(0.0000001, 0.000001, 0.00001, 0.0001, 0.001, 0.0015, 0.002)
 #thresholds_list <- seq(0.0006, 0.002, by = 0.0002)
 n_seeds <- 10
 seeds <- seq(1, n_seeds, by = 1)
@@ -323,8 +325,31 @@ compute_significant_variable_names <- memoise::memoise(
 # Call the memoised function
 significant_variable_names <- compute_significant_variable_names(seeds, genes_expression, survival_data)
 
-# Initialize list to store importance_rsf
-importance_rsf_list <- list()
+# Store importance_rsf per seed
+importance_rsf_per_seed <- list()
+
+for (i in seeds) {
+  # Split the data
+  splited <- splitTestAndTrain(genes_expression, survival_data, 0.7, i)
+  genes_expression_train <- splited$expression_train
+  survival_train <- splited$survival_train
+
+  genes_expression_train <- genes_expression_train[, c("patient", significant_variable_names[[i]])]
+
+  # Prepare RSF input
+  data_randomforest <- data.frame(
+    days = survival_train$days,
+    vital_status = survival_train$vital_status,
+    genes_expression_train
+  )
+  data_randomforest <- data_randomforest[, -which(names(data_randomforest) %in% c("patient"))]
+
+  set.seed(1012)
+  rsf_model <- rfsrc(Surv(days, vital_status) ~ ., data = data_randomforest, seed = -123)
+  importance_rsf <- vimp(rsf_model, seed = -123)$importance
+
+  importance_rsf_per_seed[[as.character(i)]] <- importance_rsf
+}
 
 # Loop over best_alpha values
 for (alpha in best_alpha_values) {
@@ -353,10 +378,14 @@ for (alpha in best_alpha_values) {
     survival_object_train <- Surv(time = survival_train$days, event = survival_train$vital_status)
     
     # Fit models for this alpha
-    RSF_fit <- fit_RSF(genes_expression_train, survival_object_train, alpha, survival_train, thresholds_list)
-    
-    # Save importance_rsf for this seed
-    alpha_importance_list[[as.character(i)]] <- RSF_fit$importance
+    RSF_fit <- fit_RSF(
+  genes_expression_train,
+  survival_object_train,
+  alpha,
+  survival_train,
+  thresholds_list,
+  importance_rsf = importance_rsf_per_seed[[as.character(i)]]
+)
     
     models_coefficients <- RSF_fit$coefficients
     
@@ -373,18 +402,22 @@ for (alpha in best_alpha_values) {
   
   # Store results for this alpha
   c_index_results[[as.character(alpha)]] <- apply(c_index_df, 1, mean, na.rm = TRUE)
-  
-  # Store importance_rsf values for this alpha
-  importance_rsf_list[[as.character(alpha)]] <- alpha_importance_list
 }
 
 # write on the chunk end time file
 log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chunk_times_log.txt")
 ```
-
 # Make the plots
 
 ```{r Make_the_plots, message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(ggplot2)
+
+# === 1. C-Index vs Threshold Plot ===
+
+library(dplyr)
+library(ggplot2)
 
 # Prepare data for plotting
 plot_data <- data.frame()
@@ -401,74 +434,148 @@ for (alpha in best_alpha_values) {
   )
 }
 
-
-library(ggplot2)
-
+# Plot
 plot_all <- ggplot(plot_data, aes(x = Threshold, y = C_Index, color = Alpha, group = Alpha)) +
   geom_line(size = 1) +
   geom_point(size = 2) +
   labs(
-    title = "C-Index vs Thresholds for Different Alpha Values",
-    x = "Threshold value",
-    y = "C-Index average",
+    title = "C-Index vs VIMP Thresholds for Different Alpha Values",
+    x = "VIMP Threshold",
+    y = "Average C-Index",
     color = "Alpha"
   ) +
-  theme_minimal()
+  scale_x_log10(breaks = thresholds_list, labels = scales::label_scientific()) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 
 
-ggsave(filename = "RSF_Optimization_Results/plot_thresholds.pdf", plot = plot_all, width = 6, height = 4)
-# write on the chunk end time file
+# Save
+ggsave(filename = "RSF_Optimization_Results/plot_thresholds.pdf",
+       plot = plot_all, width = 7, height = 4)
 
 
-# Plot a the density distribution of the VIMP for each alpha value
+# === 2. Combine VIMP scores across all seeds into one data frame ===
 
-# Combine all importance_rsf values into a single data frame
 importance_combined <- data.frame()
 
-for (alpha in names(importance_rsf_list)) {
-  flat_values <- unlist(importance_rsf_list[[alpha]])
+for (seed in names(importance_rsf_per_seed)) {
+  flat_values <- importance_rsf_per_seed[[seed]]
   temp_df <- data.frame(
-    importance = flat_values,
-    Alpha = alpha
+    importance = as.numeric(flat_values),
+    Seed = seed
   )
   importance_combined <- rbind(importance_combined, temp_df)
 }
 
-# Optional: Remove zero importances (commonly added by RSF for non-selected features)
-#importance_combined <- importance_combined %>% filter(importance > 0.004)
+# === 3. Density Plot of VIMP Scores ===
 
-# Convert Alpha to a factor for ordered plotting (optional)
-importance_combined$Alpha <- factor(importance_combined$Alpha)
-
-plot_vimp <- ggplot(importance_combined, aes(x = importance, fill = Alpha, color = Alpha)) +
-  geom_density(alpha = 0.2, size = 1.2, position = "identity") +
-  scale_fill_brewer(palette = "Set1") +
-  scale_color_brewer(palette = "Set1") +
+plot_vimp_density <- ggplot(importance_combined, aes(x = importance)) +
+  geom_density(fill = "steelblue", alpha = 0.6) +
   theme_minimal() +
   labs(
-    title = "Distribution of Feature VIMP Across 10 Seeds",
+    title = "Distribution of VIMP Scores",
     x = "VIMP Score",
     y = "Density"
   )
 
-ggsave(filename = "RSF_Optimization_Results/plot_vimp_density.pdf", plot = plot_vimp, width = 6, height = 4)
+ggsave(filename = "RSF_Optimization_Results/plot_vimp_density.pdf", plot = plot_vimp_density, width = 8, height = 4)
 
-plot_vimp_faceted <- ggplot(importance_combined, aes(x = importance, fill = Alpha)) +
-  geom_density(alpha = 0.6) +
-  facet_wrap(~ Alpha, scales = "free_y") +
+# === 4. Violin Plot of VIMP Scores > 0 ===
+
+importance_filtered <- importance_combined %>% filter(importance > 0)
+
+plot_violin <- ggplot(importance_filtered, aes(x = "", y = importance)) +
+  geom_violin(trim = FALSE, fill = "steelblue", alpha = 0.6) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3, color = "black") +
   theme_minimal() +
   labs(
-    title = "Distribution of Feature VIMP Across 10 Seeds",
-    x = "VIMP Score",
-    y = "Density"
+    title = "Distribution of VIMP Scores\n              (VIMP > 0)",
+    x = NULL,
+    y = "VIMP Score"
   ) +
-  theme(
-    strip.text = element_text(face = "bold"),
-    legend.position = "none"
-  )
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
-ggsave(filename = "RSF_Optimization_Results/plot_vimp_faceted.pdf", plot = plot_vimp_faceted, width = 8, height = 4)
+ggsave(filename = "RSF_Optimization_Results/violin_plot_vimp.pdf", plot = plot_violin, width = 3, height = 4)
+
+# === 5. Violin Plot of LOG VIMP Scores ===
+
+plot_log_violin <- ggplot(importance_filtered, aes(x = "", y = importance)) +
+  geom_violin(trim = FALSE, fill = "steelblue", alpha = 0.6) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3, color = "black") +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(
+    title = "Distribution of VIMP Scores\n              (VIMP > 0)",
+    x = NULL,
+    y = "VIMP Score (log scale)"
+  ) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+ggsave(filename = "RSF_Optimization_Results/violin_plot_log_vimp.pdf", plot = plot_log_violin, width = 3, height = 4)
+
+
 
 log_chunk_end_time("Make the plots", log_file = "chunk_times_log.txt")
-
 ```
+
+# Summary table
+
+```{r Percentage_of_selected_features, message=FALSE, warning=FALSE}
+
+# Set your threshold
+threshold <- 0.001
+
+# === Summary table across all seeds ===
+summary_table <- importance_combined %>%
+  summarise(
+    Q1 = quantile(importance, 0.25),
+    Q3 = quantile(importance, 0.75),
+    total_features = n(),
+    percent_leq_zero = 100 * sum(importance <= 0) / total_features,
+    percent_above_threshold = 100 * sum(importance > threshold) / total_features
+  )
+
+# === Per-seed counts of features above threshold ===
+per_seed_threshold_counts <- importance_combined %>%
+  group_by(Seed) %>%
+  summarise(features_above_threshold = sum(importance > threshold))
+
+# Add mean and SD to the summary table
+summary_table$mean_features_above_threshold <- mean(per_seed_threshold_counts$features_above_threshold)
+summary_table$sd_features_above_threshold <- sd(per_seed_threshold_counts$features_above_threshold)
+
+print(summary_table)
+
+write.csv(summary_table, file = "RSF_Optimization_Results/summary_table.csv", row.names = FALSE)
+
+# === Min and max VIMP per seed ===
+
+# Extract the list of VIMP vectors (now from importance_rsf_per_seed)
+vec_list <- importance_rsf_per_seed
+
+# Initialize result storage
+mins <- numeric(length(vec_list))
+maxs <- numeric(length(vec_list))
+
+# Loop through each seed's vector
+for (i in seq_along(vec_list)) {
+  mins[i] <- min(vec_list[[i]], na.rm = TRUE)
+  maxs[i] <- max(vec_list[[i]], na.rm = TRUE)
+}
+
+# Combine into a dataframe
+min_max_vimp_seed <- data.frame(
+  Seed = names(vec_list),
+  Min = mins,
+  Max = maxs
+)
+
+print(min_max_vimp_seed)
+
+write.csv(min_max_vimp_seed, file = "RSF_Optimization_Results/min_max_vimp_seed.csv", row.names = FALSE)
+
+
+log_chunk_end_time("Percentage of selected features", log_file = "chunk_times_log.txt")
+
