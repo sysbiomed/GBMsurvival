@@ -43,7 +43,7 @@ knitr::knit_hooks$set(
 # Load libraries
 
 ```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
-# library(TCGAbiolinks)
+library(TCGAbiolinks)
 library(dplyr)
 library(tibble)
 # library(tidyverse)
@@ -75,6 +75,8 @@ library(qvalue)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 library(enrichplot)
+library(ReactomePA)
+library(STRINGdb)
 library(pathview)
 library(UpSetR)
 library(rsample)
@@ -104,7 +106,6 @@ log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo
 fun_source("Functions/Data_preparation.R")
 fun_source("Functions/Model_evaluation.R")
 fun_source("Functions/Model_fitting.R")
-fun_source("Functions/Rank_product_test.R")
 
 # write on the chunk end time file
 log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
@@ -129,26 +130,61 @@ log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
 # Cache to use in memoise
 cd <- cachem::cache_disk(here::here(".", "memoise-cache"), max_size = 3 * 1024^3)
 
-download_data <- memoise::memoise(
-  function() {
-    query_RNA <- TCGAbiolinks::GDCquery(
-      project = c("TCGA-GBM", "TCGA-LGG"),
-      data.category = "Transcriptome Profiling",
-      data.type = "Gene Expression Quantification",
-      workflow.type = "STAR - Counts",
-      experimental.strategy = ("RNA-Seq")
-    )
-    # Check if files exist before downloading
-    if (!dir.exists("GDCdata")) {
-      TCGAbiolinks::GDCdownload(query = query_RNA)
-    }
-    
-    TCGAbiolinks::GDCprepare(query = query_RNA)  
-  },
-  cache = cd
-)
+# download_data <- memoise::memoise(
+#   function() {
+#     query_RNA <- TCGAbiolinks::GDCquery(
+#       project = c("TCGA-GBM", "TCGA-LGG"),
+#       data.category = "Transcriptome Profiling",
+#       data.type = "Gene Expression Quantification",
+#       workflow.type = "STAR - Counts",
+#       experimental.strategy = ("RNA-Seq")
+#     )
+#     # Check if files exist before downloading
+#     if (!dir.exists("GDCdata")) {
+#       TCGAbiolinks::GDCdownload(query = query_RNA)
+#     }
+# 
+#     TCGAbiolinks::GDCprepare(query = query_RNA)
+#   },
+#   cache = cd
+# )
+# 
+# TCGA_RNA <- download_data()
+# saveRDS(TCGA_RNA, file = "TCGA_RNA.rds")
 
-TCGA_RNA <- download_data()
+library(googledrive)
+
+# Ensure that we don't use authentication (for public files)
+drive_deauth()
+
+# Now download the file directly
+drive_download(as_id("1UkGI-yjHDu_HQFL4dmwW-T9vde2JnD3J"), 
+               path = "TCGA_RNA.rds", 
+               overwrite = TRUE)
+
+TCGA_RNA <- readRDS("TCGA_RNA.rds")
+
+# query_RNA <- TCGAbiolinks::GDCquery(
+#   project = c("TCGA-GBM", "TCGA-LGG"),
+#   data.category = "Transcriptome Profiling",
+#   data.type = "Gene Expression Quantification",
+#   workflow.type = "STAR - Counts",
+#   experimental.strategy = "RNA-Seq"
+# )
+# 
+# if (!dir.exists("GDCdata")) {  
+#   TCGAbiolinks::GDCdownload(query = query_RNA)  
+# }
+# 
+# download_data <- memoise::memoise(
+#   function() {
+#     TCGAbiolinks::GDCprepare(query = query_RNA)  # ✅ This is the only step cached
+#   },
+#   cache = cd  # ✅ Persistent caching
+# )
+# 
+# TCGA_RNA <- download_data()
+
 
 # write on the chunk end time file
 log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
@@ -243,6 +279,12 @@ survival_data <- orderDataByPatient(survival_data)
 # write on the chunk end time file
 log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
+```{r, eval=FALSE, include=FALSE}
+# Local chunk to store shared dataset
+feather::write_feather(genes_expression, "Results/genes_expression.feather")
+feather::write_feather(survival_data, "Results/survival_data.feather")
+```
+
 
 ```{r, eval=FALSE, include=FALSE}
 # Local chunk to store shared dataset
@@ -257,7 +299,7 @@ feather::write_feather(survival_data, "Results/survival_data.feather")
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") #"SIS", "ISIS", "CausalForest+Cox",
 
-best_alpha <- 0.5
+best_alpha <- 1
 n_seeds <- 10
 
 # Define the seeds for the iterations
@@ -356,16 +398,44 @@ for (i in seeds) {
 #MRR_C_Index <- calculate_MRR(c_index_df, higher_is_better = TRUE)
 #MRR_IBS <- calculate_MRR(IBS_df, higher_is_better = FALSE)
 
+# Initialize empty vectors for Confidence Intervals
+c_index_ci_lower <- c()
+c_index_ci_upper <- c()
+ibs_ci_lower <- c()
+ibs_ci_upper <- c()
+
+for (i in seq_len(nrow(c_index_df))) {
+  cindex_vals <- as.numeric(c_index_df[i, ])
+  ibs_vals <- as.numeric(IBS_df[i, ])
+  
+  ci_cindex <- compute_confi_inter(cindex_vals) 
+  ci_ibs <- compute_confi_inter(ibs_vals) 
+  
+  c_index_ci_lower[i] <- round(ci_cindex[[1]], 3) 
+  c_index_ci_upper[i] <- round(ci_cindex[[2]], 3) 
+  
+  ibs_ci_lower[i] <- round(ci_ibs[[1]], 3) 
+  ibs_ci_upper[i] <- round(ci_ibs[[2]], 3)
+}
+
+
 # Create a summary table
 summary_table <- data.frame(
   C_Index_Avg = round(apply(c_index_df, 1, mean, na.rm = TRUE), 3),
   C_Index_Std_Dev = round(apply(c_index_df, 1, sd, na.rm = TRUE), 3),
+  C_Index_95CI = paste0("(", c_index_ci_lower, " – ", c_index_ci_upper, ")"),
+  #MRR_C_Index = MRR_C_Index$MRR,
+  
   P_value_Avg = round(apply(p_value_df, 1, mean, na.rm = TRUE), 3),
   P_value_Std_Dev = round(apply(p_value_df, 1, sd, na.rm = TRUE), 3),
-  #MRR_C_Index = MRR_C_Index$MRR,
-  IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
+  
+    IBS_Avg = round(apply(IBS_df, 1, mean, na.rm = TRUE), 3),
   IBS_Std_Dev = round(apply(IBS_df, 1, sd, na.rm = TRUE), 3),
   #MRR_IBS = MRR_IBS$MRR,
+  IBS_95CI = paste0("(", ibs_ci_lower, " – ", ibs_ci_upper, ")"),
+  
+  
+  
   Coeff_Num_Avg = round(apply(num_coeff_df, 1, mean), 1),
   Coeff_Num_Std_Dev = round(apply(num_coeff_df, 1, sd), 1),
   Non_Convergence_Perc = apply(num_coeff_df, 1, function(x) mean(x == 0) * 100)
@@ -390,7 +460,7 @@ log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chu
 ```{r Analyse_the_best_model_different, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 #best_model_index <- which.min(rowMeans(p_value_df, na.rm = TRUE)) 
-best_model_index <- 2#which.max(rowMeans(c_index_df, na.rm = TRUE)) 
+best_model_index <- 3#which.max(rowMeans(c_index_df, na.rm = TRUE)) 
 best_model_name <- rownames(c_index_df)[best_model_index]
 
 logger::log_info("Best model:", best_model_name)
@@ -520,8 +590,8 @@ replayPlot(recorded_plot)
 
 #---------------------------- Make a table with the genes that are in more than 1 seed
 
-df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
-print(df_genes_in_multiple_seeds) # Display the data frame
+#df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
+#print(df_genes_in_multiple_seeds) # Display the data frame
 
 # Save a predictors genes and coefficients as a CSV file
 #write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
@@ -537,7 +607,7 @@ write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControl
 
 
 # Save the table with the genes that are in more than 1 seed
-write.csv(df_genes_in_multiple_seeds, file = "Results/df_genes_in_multiple_seeds", row.names = FALSE)
+#write.csv(df_genes_in_multiple_seeds, file = "Results/df_genes_in_multiple_seeds", row.names = FALSE)
 
 
 # Save plots
@@ -558,7 +628,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") # "CausalForest+Cox", "SIS", "ISIS"
 
-best_alpha <- 0.5
+best_alpha <- 1
 n_seeds_all_equal <- 1
 
 # Define the seeds for the iterations
@@ -655,7 +725,7 @@ log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chun
 ```{r Analyse_the_best_model_equal, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 #best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) 
-best_model_index_all_equal <- 2#which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
+best_model_index_all_equal <- 3#which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
 best_model_name_all_equal <- rownames(p_value_df_all_equal)[best_model_index_all_equal]
 
 logger::log_info("Best model:", best_model_name_all_equal)
@@ -797,18 +867,18 @@ log_chunk_end_time("Analyse the best model (train = test)", log_file = "chunk_ti
 
 ```{r Enrichment_Analysis, warning=FALSE}
 
-#print(best_model_coefficients_all_equal)
+print(best_model_coefficients_all_equal)
 
 # Extract ensembl_gene_id from the first entries of each sublist
-ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
+#ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
 
 # Combine all the IDs into a single vector
-ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
+#ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
 
                                   
 # Remove the version of the gene from its name(everything after the dot including the dot)
-#genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
-genesss <- sub("\\..*", "", ensembl_ids_combined)
+genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
+#genesss <- sub("\\..*", "", ensembl_ids_combined)
 
 # Convert Ensembl IDs to Entrez IDs
 genes_list <- bitr(genesss,
@@ -845,6 +915,74 @@ if (nrow(as.data.frame(kegg_enrichment)) > 0) {
 } else {
   cat("No enriched KEGG terms to plot.")
 }
+
+#-------- NOVO
+
+# You need at least one specific pathway to visualize.
+# For example, choose the first significant KEGG pathway if it exists:
+kegg_df <- as.data.frame(kegg_enrichment)
+
+if (nrow(kegg_df) > 0) {
+  selected_pathway <- kegg_df$ID[1]  # First KEGG pathway ID, e.g. "hsa04110"
+
+  # Run pathview using default gene list (set gene.data as vector of 1s)
+  # because you may not have expression data
+  pathview(gene.data = rep(1, length(genes_list$ENTREZID)),
+           gene.idtype = "entrez",
+           pathway.id = selected_pathway,
+           species = "hsa",
+           out.suffix = "demo_pathway")  # Output files will be saved
+} else {
+  cat("No KEGG pathway available to visualize with Pathview.\n")
+}
+
+
+# Run Reactome enrichment
+reactome_results <- enrichPathway(gene = genes_list$ENTREZID,
+                                  readable = TRUE)
+
+# Dot plot for GO enrichment results if results are found
+if (nrow(as.data.frame(reactome_results)) > 0) {
+  dotplot(reactome_results, showCategory = 10)  # Show top 10 GO terms
+} else {
+  cat("No enriched ReactomePA terms to plot.")
+}
+
+
+# Create STRINGdb object for human
+string_db <- STRINGdb$new(version = "11.5", species = 9606)#, score_threshold = 400)
+
+# Prepare gene list for STRING (using SYMBOLs)
+genes_symbols <- bitr(genesss,
+                      fromType = "ENSEMBL",
+                      toType = "SYMBOL",
+                      OrgDb = org.Hs.eg.db)
+
+# Map to STRING IDs (whith the mapped and unmapped genes)
+mapped_and_unmapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = FALSE)
+write.csv(mapped_and_unmapped_genes, file = "Results/mapped_and_unmapped_genes.csv", row.names = FALSE)
+
+# Map to STRING IDs (remove unmapped rows)
+mapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = TRUE)
+write.csv(mapped_genes, file = "Results/mapped_genes.csv", row.names = FALSE)
+
+
+# Plot PPI network
+if (nrow(mapped_genes) > 0) {
+  string_db$plot_network(mapped_genes$STRING_id)
+} else {
+  cat("No mapped genes found for STRING network.\n")
+} 
+
+# Save STRING PPI network to file
+if (nrow(mapped_genes) > 0) {
+  string_db$get_png(mapped_genes$STRING_id,
+                    file = "Results/ppi_network.png")  # Or "ppi_network.pdf"
+  cat("PPI network saved as ppi_network.png\n")
+} else {
+  cat("No mapped genes found for STRING network.\n")
+}
+
 
 # write on the chunk end time file
 log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt")

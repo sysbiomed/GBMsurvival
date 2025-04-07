@@ -1,0 +1,4 @@
+"","C_Index_Avg","C_Index_Std_Dev","C_Index_95CI","P_value_Avg","P_value_Std_Dev","IBS_Avg","IBS_Std_Dev","IBS_95CI","Coeff_Num_Avg","Coeff_Num_Std_Dev","Non_Convergence_Perc"
+"Cox",0.565,0.054,"(0.529 – 0.599)",0.3,0.256,0.128,0.015,"(0.12 – 0.139)",17.9,12.6,20
+"RandomForest+Cox",0.57,0.05,"(0.54 – 0.599)",0.401,0.38,0.131,0.015,"(0.124 – 0.141)",16.1,5.3,0
+"Boruta+Cox",0.578,0.053,"(0.546 – 0.609)",0.307,0.321,0.129,0.016,"(0.119 – 0.139)",7.8,2.9,0

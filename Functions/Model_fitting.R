@@ -178,63 +178,33 @@ find_best_alpha_for_glmnet <- function(alpha_vector, seed_values, genes_expressi
 
 ## Random Survival Forest Function to analyse different thresholds
 
-fit_RSF <- function(genes_expression_train, survival_object, best_alpha, survival_train, thresholds_list) {
+fit_RSF <- function(genes_expression_train, survival_object, best_alpha, survival_train, thresholds_list, importance_rsf) {
+  models_coefficients <- list()
 
-############ Fit the Fast Unified Random Forest
+  for (k in thresholds_list) {
+    # Select the top features based on importance
+    top_features_indices_rsf <- which(importance_rsf >= k)
 
-models_coefficients <- list()
+    z <- as.matrix(genes_expression_train[, -which(names(genes_expression_train) %in% c("patient"))])
+    top_features_rsf <- colnames(z)[top_features_indices_rsf]
+    top_features_rsf <- top_features_rsf[!is.na(top_features_rsf)]
 
-for (k in thresholds_list) {
-  # Prepare the data for the random forest
-  data_randomforest <- data.frame(
-    days = survival_train$days,
-    vital_status = survival_train$vital_status,
-    genes_expression_train)
+    # Fit Cox with selected features
+    set.seed(1012)
+    fit_rsf_model <- cv.glmnet(as.matrix(subset(genes_expression_train, select = top_features_rsf)),
+                               survival_object,
+                               family = "cox",
+                               alpha = best_alpha)
 
-  # Prepare the data for the random forest
-  data_randomforest <- data_randomforest[, -which(names(data_randomforest) %in% c("patient"))]
-
-  # Fit the Random Survival Forest model
-  set.seed(1012)
-  rsf_model <- rfsrc(Surv(days, vital_status) ~ .,
-                     data = data_randomforest, seed = -123)
-
-  # Extract feature importance from the causal forest
-  importance_rsf <- vimp(rsf_model, seed = -123)$importance
-
-  # Select the top features based on importance
-  #top_features_indices_rsf <- order(importance_rsf, decreasing = TRUE)[1:100]
-  top_features_indices_rsf <- which(importance_rsf >= k)
-
-  # Convert the 'genes_expression_train' data frame to a matrix, excluding the column "patient" by finding its index and removing it
-  z <- as.matrix(genes_expression_train[, -which(names(genes_expression_train) %in% c("patient"))])
-
-  # Retrieve the column names (i.e., gene names) from the matrix 'z' and subset them using 'top_features_indices_rsf', which contains the indices of the top features (genes)
-  top_features_rsf <- colnames(z)[top_features_indices_rsf]
-
-  # remove NA features
-  top_features_rsf <- top_features_rsf[!is.na(top_features_rsf)]
-
-  # Fit a Cox regression model to avoid having predictors that are highly correlated with others
-  set.seed(1012)
-  fit_rsf_model <- cv.glmnet(as.matrix(subset(genes_expression_train, select = top_features_rsf)),
-                             survival_object,
-                             family = "cox",
-                             alpha = best_alpha)
-
-  # Extract coefficients from the fitted model
-  RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
-
-  models_coefficients[[as.character(k)]] <- RandomForest_Coefficients
+    RandomForest_Coefficients <- extractCoxRegressionCoefficients(fit_rsf_model)
+    models_coefficients[[as.character(k)]] <- RandomForest_Coefficients
   }
 
-
-  # Return the dataframe and the fitted models
-  return(models_coefficients)
-
+  return(list(coefficients = models_coefficients))
 }
 
-## Random Survival Forest Function to analyse different thresholds
+
+## Boruta Function to analyse different thresholds
 
 fit_Boruta <- function(genes_expression_train, survival_object, best_alpha, survival_train, thresholds_list) {
 

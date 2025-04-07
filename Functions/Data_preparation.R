@@ -101,7 +101,7 @@ cleanGeneExpressionData <- function(expression_data) {
 selectDataPerDisease <- function(disease, expression_data, survivalData) {
 
   #survival data
-  survivalData <- survivalData[survivalData$project_id == disease, ] # select the survival data from the patients with the disease
+  survivalData <- survivalData[survivalData$project_id %in% disease, ] # select the survival data from the patients with the disease
   survivalData <- survivalData[, c('patient', 'vital_status', 'days')] # keep only the columns of interest
   #expression data
   merged_data <- merge(survivalData, expression_data, by = "patient") # select only the patients from the gene expression dataframe with the desired disease and select only the patients whose the sum of the gene expression is not zero
