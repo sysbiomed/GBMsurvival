@@ -118,6 +118,15 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 -   **Gene expression data can be filtered to include only protein-coding genes, lncRNA, or miRNA.**\
 -   Outputs (plots, tables, models) are stored in the **Results/** directory.
 
+
+### 📊 Results Summary Table
+ 
+![table_for_git_hub](https://github.com/user-attachments/assets/5fa41606-5ba0-4994-923c-0721375a0ad0)
+
+⚠️ *Note:* These results may not exactly match those reported in the paper. This is due to variability in the Random Survival Forest (RSF) model's variable importance (VIMP) scores, which are inherently influenced by Monte Carlo effects. As stated in the [`randomForestSRC` package documentation](https://cran.r-project.org/web/packages/randomForestSRC/randomForestSRC.pdf):   
+*" (...) VIMP and many other statistics are dependent on additional randomization, which we do not consider part of the model. These statistics are susceptible to Monte Carlo effects."*
+
+
 ### How to Cite
 
 If you use this analysis in your research, please cite the following paper:
