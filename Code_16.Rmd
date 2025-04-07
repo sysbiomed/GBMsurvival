@@ -279,6 +279,12 @@ survival_data <- orderDataByPatient(survival_data)
 # write on the chunk end time file
 log_chunk_end_time("Disease selection and data normalization", log_file = "chunk_times_log.txt")
 ```
+```{r, eval=FALSE, include=FALSE}
+# Local chunk to store shared dataset
+feather::write_feather(genes_expression, "Results/genes_expression.feather")
+feather::write_feather(survival_data, "Results/survival_data.feather")
+```
+
 
 # Fit and Explore the Models (train != test)
 
@@ -287,7 +293,7 @@ log_chunk_end_time("Disease selection and data normalization", log_file = "chunk
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") #"SIS", "ISIS", "CausalForest+Cox",
 
-best_alpha <- 0
+best_alpha <- 1
 n_seeds <- 10
 
 # Define the seeds for the iterations
@@ -448,7 +454,7 @@ log_chunk_end_time("Fit and Explore the Models (train != test)", log_file = "chu
 ```{r Analyse_the_best_model_different, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 #best_model_index <- which.min(rowMeans(p_value_df, na.rm = TRUE)) 
-best_model_index <- 2#which.max(rowMeans(c_index_df, na.rm = TRUE)) 
+best_model_index <- 3#which.max(rowMeans(c_index_df, na.rm = TRUE)) 
 best_model_name <- rownames(c_index_df)[best_model_index]
 
 logger::log_info("Best model:", best_model_name)
@@ -578,8 +584,8 @@ replayPlot(recorded_plot)
 
 #---------------------------- Make a table with the genes that are in more than 1 seed
 
-df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
-print(df_genes_in_multiple_seeds) # Display the data frame
+#df_genes_in_multiple_seeds <- get_gene_counts_with_names(genes_list)
+#print(df_genes_in_multiple_seeds) # Display the data frame
 
 # Save a predictors genes and coefficients as a CSV file
 #write.csv(Propo_hazards$table, file = "Results/Propo_hazards", row.names = TRUE)
@@ -595,7 +601,7 @@ write.csv(riskAUC$Cindex, file = "Results/concordance_IncidentCaseDynamicControl
 
 
 # Save the table with the genes that are in more than 1 seed
-write.csv(df_genes_in_multiple_seeds, file = "Results/df_genes_in_multiple_seeds", row.names = FALSE)
+#write.csv(df_genes_in_multiple_seeds, file = "Results/df_genes_in_multiple_seeds", row.names = FALSE)
 
 
 # Save plots
@@ -616,7 +622,7 @@ log_chunk_end_time("Analyse the best model (train != test)", log_file = "chunk_t
 # Models' names
 models_names_list <- c("Cox", "RandomForest+Cox", "Boruta+Cox") # "CausalForest+Cox", "SIS", "ISIS"
 
-best_alpha <- 0
+best_alpha <- 1
 n_seeds_all_equal <- 1
 
 # Define the seeds for the iterations
@@ -713,7 +719,7 @@ log_chunk_end_time("Fit and Explore the Models (train = test)", log_file = "chun
 ```{r Analyse_the_best_model_equal, message=FALSE, warning=FALSE}
 # Identify the model with the highest average C-index
 #best_model_index_all_equal <- which.max(rowMeans(c_index_df_all_equal, na.rm = TRUE)) 
-best_model_index_all_equal <- 2#which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
+best_model_index_all_equal <- 3#which.min(rowMeans(p_value_df_all_equal, na.rm = TRUE)) 
 best_model_name_all_equal <- rownames(p_value_df_all_equal)[best_model_index_all_equal]
 
 logger::log_info("Best model:", best_model_name_all_equal)
@@ -855,18 +861,18 @@ log_chunk_end_time("Analyse the best model (train = test)", log_file = "chunk_ti
 
 ```{r Enrichment_Analysis, warning=FALSE}
 
-#print(best_model_coefficients_all_equal)
+print(best_model_coefficients_all_equal)
 
 # Extract ensembl_gene_id from the first entries of each sublist
-ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
+#ensembl_ids <- lapply(models_coefficients_list, function(x) x[[best_model_index]]$ensembl_gene_id)
 
 # Combine all the IDs into a single vector
-ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
+#ensembl_ids_combined <- unique(unlist(ensembl_ids, use.names = FALSE))
 
                                   
 # Remove the version of the gene from its name(everything after the dot including the dot)
-#genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
-genesss <- sub("\\..*", "", ensembl_ids_combined)
+genesss <- sub("\\..*", "", best_model_coefficients_all_equal$ensembl_gene_id)
+#genesss <- sub("\\..*", "", ensembl_ids_combined)
 
 # Convert Ensembl IDs to Entrez IDs
 genes_list <- bitr(genesss,
@@ -946,8 +952,14 @@ genes_symbols <- bitr(genesss,
                       toType = "SYMBOL",
                       OrgDb = org.Hs.eg.db)
 
+# Map to STRING IDs (whith the mapped and unmapped genes)
+mapped_and_unmapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = FALSE)
+write.csv(mapped_and_unmapped_genes, file = "Results/mapped_and_unmapped_genes.csv", row.names = FALSE)
+
 # Map to STRING IDs (remove unmapped rows)
 mapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = TRUE)
+write.csv(mapped_genes, file = "Results/mapped_genes.csv", row.names = FALSE)
+
 
 # Plot PPI network
 if (nrow(mapped_genes) > 0) {
@@ -956,6 +968,14 @@ if (nrow(mapped_genes) > 0) {
   cat("No mapped genes found for STRING network.\n")
 } 
 
+# Save STRING PPI network to file
+if (nrow(mapped_genes) > 0) {
+  string_db$get_png(mapped_genes$STRING_id,
+                    file = "Results/ppi_network.png")  # Or "ppi_network.pdf"
+  cat("PPI network saved as ppi_network.png\n")
+} else {
+  cat("No mapped genes found for STRING network.\n")
+}
 
 
 # write on the chunk end time file
