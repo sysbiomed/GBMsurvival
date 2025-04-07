@@ -112,9 +112,17 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 
 ------------------------------------------------------------------------
 
+### 📊 Results Summary Table
+
+![Summary Table](~/Monet/paper_results/New_Code16_results/summary_table.png)
+
+> ⚠️ *Note:* These results may not exactly match those reported in the paper. This is due to variability in the Random Survival Forest (RSF) model's variable importance (VIMP) scores, which are inherently influenced by Monte Carlo effects. As stated in the [`randomForestSRC` package documentation](https://cran.r-project.org/web/packages/randomForestSRC/randomForestSRC.pdf):  
+> *" (...) VIMP and many other statistics are dependent on additional randomization, which we do not consider part of the model. These statistics are susceptible to Monte Carlo effects."*
+
+
+
 ### **Additional Notes**
 
--   The workflow allows flexible **disease selection** (e.g., glioblastoma vs astrocytoma).\
 -   **Gene expression data can be filtered to include only protein-coding genes, lncRNA, or miRNA.**\
 -   Outputs (plots, tables, models) are stored in the **Results/** directory.
 
