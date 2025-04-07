@@ -253,8 +253,8 @@ log_chunk_end_time("Download data", log_file = "chunk_times_log.txt")
 ###################################################################################################
 
 # Extract survival data of interest and rename desired columns
-survival_data <- clinical_df[, c("CGGA_ID", "Histology", "OS", "Censor..alive.0..dead.1.")]
-colnames(survival_data) <- c("patient", "project_id", "days", "vital_status")
+survival_data <- clinical_df[, c("CGGA_ID", "Histology", "OS", "Censor..alive.0..dead.1.", "IDH_mutation_status")]
+colnames(survival_data) <- c("patient", "project_id", "days", "vital_status", "IDH_mutation_status")
 
 # Remove rows with any NA values
 survival_data <- na.omit(survival_data)
@@ -323,6 +323,10 @@ log_chunk_end_time("Clean-up TGCGA RNA", log_file = "chunk_times_log.txt")
 #data <- selectDataPerDisease("oligodendroglioma", genes_expression, survival_data)
 
 #------------ CGGA CLASSIFICATION-------------------------------------------------
+
+# keep only "IDH_mutation_status" = Wildtype, because to update GBM patients from the WHO-2016 to WHO-2021 classification the GBM patients need to be Wildtype
+survival_data <- survival_data[survival_data$IDH_mutation_status == "Wildtype",]
+survival_data <- survival_data[, -ncol(survival_data)] # apagar a coluna do "IDH_mutation_status" pq já não é necessária
 
 data <- selectDataPerDisease(c("GBM", "rGBM"), genes_expression, survival_data)
 
