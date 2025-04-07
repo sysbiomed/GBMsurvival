@@ -1,0 +1,289 @@
+---
+title: "Glioma biomarkers to distinguish high-risk from low-risk patients"
+author: "Beatriz N. Leitão, André Veríssimo, Alexandra M. Carvalho and Susana Vinga"
+date: "March, 2025"
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r init, include=FALSE}
+
+# Trick to store functions in search path, but not enviromnent
+local({
+  env <- new.env()
+  env$fun_source <- function(file_name) {
+    env_name <- sprintf("my_functions:%s", gsub(" ", "_", basename(file_name)))
+    if (env_name %in% search()) {
+      detach(env_name, character.only = TRUE, unload = TRUE)
+    }
+    sys.source(file_name, envir = attach(NULL, name = env_name))
+  }
+  lapply(search()[search() %in% "fun_source"], detach, character.only = TRUE, unload = TRUE)
+  attach(env, name = "fun_source")
+})
+
+# Run garbage colector after each chunk
+knitr::knit_hooks$set(
+  after_chunk = function(options) {
+    invisible(gc())
+  }
+)
+```
+
+# Install packages
+
+```{r Install_packages, results = 'hide', message=FALSE, warning=FALSE}
+#renv::restore()
+```
+
+# Load libraries
+
+```{r Load_libraries, results=FALSE, message=FALSE, warning=FALSE}
+library(TCGAbiolinks)
+library(dplyr)
+library(tibble)
+# library(tidyverse)
+library(DT)
+library(SummarizedExperiment)
+library(survival)
+library(survminer)
+# library(readr)
+library(glmnet)
+library(caret)
+library(openxlsx)
+library(biomaRt)
+library(writexl)
+library(edgeR)
+library(pROC)
+library(caTools)
+library(survivalROC)
+library(risksetROC)
+library(lattice)
+library(survMisc)
+library(SIS)
+library(VennDiagram)
+# library(glmSparseNet)
+library(randomForestSRC)
+library(grf)
+library(Boruta)
+library(timeROC)
+library(qvalue)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(ReactomePA)
+library(STRINGdb)
+library(pathview)
+library(UpSetR)
+library(rsample)
+library(pec)
+```
+
+# Prepare the environment, report chunk status and sessioninfo
+
+```{r Prepare_the_environment_report_chunk_status_and_sessioninfo}
+
+# clean current environment
+rm(list = ls())
+
+# Capture the sessionInfo() output and write it to a file
+writeLines(capture.output(sessionInfo()), con = "sessioninfo.txt")
+
+fun_source("Functions/Logger.R")
+
+# write on the chunk end time file
+log_chunk_end_time("Prepare the environment, report chunk status and sessioninfo", log_file = "chunk_times_log.txt")
+```
+
+# Download functions
+
+```{r Download_functions}
+# download the functions
+fun_source("Functions/Data_preparation.R")
+fun_source("Functions/Model_evaluation.R")
+fun_source("Functions/Model_fitting.R")
+
+# write on the chunk end time file
+log_chunk_end_time("Download functions", log_file = "chunk_times_log.txt")
+```
+
+# Folder to store results
+
+```{r Folder_to_store_results}
+
+# Ensure the 'Results' directory exists
+if (!dir.exists("Enrichment_Analysis_Results")) {
+  dir.create("Enrichment_Analysis_Results")
+}
+
+# write on the chunk end time file
+log_chunk_end_time("Folder to store results", log_file = "chunk_times_log.txt")
+```
+
+# Enrichment Analysis
+
+```{r Enrichment_Analysis, warning=FALSE}
+
+# genesss <- c(
+#   "ENSG00000134013",  # LOXL1
+#   "ENSG00000167779",  # IGFBP6
+#   "ENSG00000251297",  # PCDHB3
+#   "ENSG00000204219",  # RO60 = TROVE2
+#   "ENSG00000167671",  # CADM3
+#   "ENSG00000186868",  # TNFRSF18
+#   "ENSG00000136840",  # CEP97
+#   "ENSG00000136807",  # NOSTRIN
+#   "ENSG00000101336"   # MMP19
+# )
+
+genesss <- c(
+"ENSG00000102265", # TIMP1
+"ENSG00000129038", # LOXL1
+"ENSG00000167612", # ANKRD33
+"ENSG00000167779", # IGFBP6
+"ENSG00000198862", # LTN1
+"ENSG00000205863"  # C1QTNF9B
+) #genes from elastic net boruta, train set = test set
+
+
+# Convert Ensembl IDs to Entrez IDs
+genes_list <- bitr(genesss,
+                    fromType = "ENSEMBL",  # Input type is Ensembl Gene IDs
+                    toType = "ENTREZID",   # Convert to Entrez Gene IDs
+                    OrgDb = org.Hs.eg.db)  # Database for human genes
+
+# GO Enrichment Analysis
+go_enrichment <- enrichGO(gene          = genes_list$ENTREZID,
+                          OrgDb         = org.Hs.eg.db)#,
+                          #keyType       = "ENTREZID",  # The type of gene identifier
+                          #ont           = "ALL",      # "BP", "MF", "CC", or "ALL" for all three
+                          #pAdjustMethod = "BH",       # Adjust p-values using Benjamini-Hochberg
+                          #pvalueCutoff  = 0.05,       # p-value threshold
+                          #qvalueCutoff  = 0.02)        # q-value (FDR) threshold
+
+
+# KEGG Pathway Enrichment Analysis
+kegg_enrichment <- enrichKEGG(gene         = genes_list$ENTREZID,
+                              organism     = 'hsa')        # "hsa" for human genes
+                              #pvalueCutoff = 0.05)
+
+
+# Dot plot for GO enrichment results if results are found
+if (nrow(as.data.frame(go_enrichment)) > 0) {
+  dotplot(go_enrichment, showCategory = 10)  # Show top 10 GO terms
+} else {
+  cat("No enriched GO terms to plot.")
+}
+
+# Dot plot for GO enrichment results if results are found
+if (nrow(as.data.frame(kegg_enrichment)) > 0) {
+  dotplot(kegg_enrichment, showCategory = 10)  # Show top 10 GO terms
+} else {
+  cat("No enriched KEGG terms to plot.")
+}
+
+#-------- NOVO
+
+# You need at least one specific pathway to visualize.
+# For example, choose the first significant KEGG pathway if it exists:
+kegg_df <- as.data.frame(kegg_enrichment)
+
+if (nrow(kegg_df) > 0) {
+  selected_pathway <- kegg_df$ID[1]  # First KEGG pathway ID, e.g. "hsa04110"
+
+  # Run pathview using default gene list (set gene.data as vector of 1s)
+  # because you may not have expression data
+  pathview(gene.data = rep(1, length(genes_list$ENTREZID)),
+           gene.idtype = "entrez",
+           pathway.id = selected_pathway,
+           species = "hsa",
+           out.suffix = "demo_pathway")  # Output files will be saved
+} else {
+  cat("No KEGG pathway available to visualize with Pathview.\n")
+}
+
+
+# Run Reactome enrichment
+reactome_results <- enrichPathway(gene = genes_list$ENTREZID,
+                                  readable = TRUE)
+
+# Dot plot for GO enrichment results if results are found
+library(ggplot2)
+
+# if (nrow(as.data.frame(reactome_results)) > 0) {
+#   p <- dotplot(reactome_results) +
+#        ggtitle("Reactome Pathway Analysis") +
+#        theme(plot.title = element_text(hjust = 0.5))  # Center the title
+#   print(p)
+#   ggsave("Enrichment_Analysis_Results/ReactomePA.pdf", plot = p, width = 8, height = 6, dpi = 300)
+# } else {
+#   cat("No enriched ReactomePA terms to plot.")
+# }
+
+if (nrow(as.data.frame(reactome_results)) > 0) {
+  
+  reactome_df <- reactome_results@result # Convert to full data.frame
+  top_n <- 10 # How many pathways to show
+  top_terms <- reactome_df[order(reactome_df$p.adjust), ][1:top_n, ] # Get top N terms based on adjusted p-value
+  top_terms$CustomDescription <- paste0(top_terms$Description, " (", top_terms$geneID, ")") # Create custom Description with gene names
+  reactome_df$CustomDescription <- reactome_df$Description  # default # Create new column for updated Descriptions
+  reactome_df$CustomDescription[match(top_terms$ID, reactome_df$ID)] <- top_terms$CustomDescription # Replace only top N
+  reactome_results@result$Description <- reactome_df$CustomDescription # Assign back to the object (so enrichplot uses it)
+  
+  # Now plot with title and save
+  p <- dotplot(reactome_results, showCategory = top_n) +
+       ggtitle("Reactome Pathway Analysis") +
+       theme(plot.title = element_text(hjust = 0.5))
+
+  print(p)
+  ggsave("Enrichment_Analysis_Results/ReactomePA.pdf", plot = p, width = 8, height = 6, dpi = 300)
+
+} else {
+  cat("No enriched ReactomePA terms to plot.")
+}
+
+
+# Create STRINGdb object for human
+string_db <- STRINGdb$new(version = "11.5", species = 9606)#, score_threshold = 400)
+
+# Prepare gene list for STRING (using SYMBOLs)
+genes_symbols <- bitr(genesss,
+                      fromType = "ENSEMBL",
+                      toType = "SYMBOL",
+                      OrgDb = org.Hs.eg.db)
+
+# Map to STRING IDs (whith the mapped and unmapped genes)
+mapped_and_unmapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = FALSE)
+write.csv(mapped_and_unmapped_genes, file = "Enrichment_Analysis_Results/mapped_and_unmapped_genes.csv", row.names = FALSE)
+
+# Map to STRING IDs (remove unmapped rows)
+mapped_genes <- string_db$map(genes_symbols, "SYMBOL", removeUnmappedRows = TRUE)
+write.csv(mapped_genes, file = "Enrichment_Analysis_Results/mapped_genes.csv", row.names = FALSE)
+
+
+# Plot PPI network
+if (nrow(mapped_genes) > 0) {
+  string_db$plot_network(mapped_genes$STRING_id)
+} else {
+  cat("No mapped genes found for STRING network.\n")
+} 
+
+# Save STRING PPI network to file
+if (nrow(mapped_genes) > 0) {
+  string_db$get_png(mapped_genes$STRING_id,
+                    file = "Enrichment_Analysis_Results/ppi_network.png")  # Or "ppi_network.pdf"
+  cat("PPI network saved as ppi_network.png\n")
+} else {
+  cat("No mapped genes found for STRING network.\n")
+}
+
+
+
+
+# write on the chunk end time file
+log_chunk_end_time("Enrichment Analysis", log_file = "chunk_times_log.txt")
+```
