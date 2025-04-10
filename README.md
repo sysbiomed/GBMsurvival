@@ -114,9 +114,10 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 
 ### **Additional Notes**
 
--   The workflow allows flexible **disease selection** (e.g., glioblastoma vs astrocytoma).\
--   **Gene expression data can be filtered to include only protein-coding genes, lncRNA, or miRNA.**\
+-   The workflow allows flexible **disease selection** (e.g., glioblastoma vs astrocytoma).
+-   **Gene expression data can be filtered to include only protein-coding genes, lncRNA, or miRNA.**
 -   Outputs (plots, tables, models) are stored in the **Results/** directory.
+-   Our pipeline is fully compatible with datasets beyond TCGA. Some basic preprocessing may be required to match the expected input format, such as aligning variable names and data types.
 
 
 ### 📊 Results Summary Table
