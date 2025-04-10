@@ -684,6 +684,24 @@
       ],
       "Hash": "df49e3306f232ec28f1604e36a202847"
     },
+    "ReactomePA": {
+      "Package": "ReactomePA",
+      "Version": "1.46.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "AnnotationDbi",
+        "DOSE",
+        "R",
+        "enrichplot",
+        "ggplot2",
+        "ggraph",
+        "graphite",
+        "gson",
+        "igraph",
+        "reactome.db"
+      ],
+      "Hash": "10f01bec6261174f8a3903338ef619ec"
+    },
     "Rgraphviz": {
       "Package": "Rgraphviz",
       "Version": "2.46.0",
@@ -755,6 +773,26 @@
         "R"
       ],
       "Hash": "0cf10dab0d023d5b46a5a14387556891"
+    },
+    "STRINGdb": {
+      "Package": "STRINGdb",
+      "Version": "2.14.3",
+      "Source": "Bioconductor",
+      "Repository": "Bioconductor 3.18",
+      "Requirements": [
+        "R",
+        "RColorBrewer",
+        "gplots",
+        "hash",
+        "httr",
+        "igraph",
+        "methods",
+        "plotrix",
+        "plyr",
+        "png",
+        "sqldf"
+      ],
+      "Hash": "a2cb50fcbba0b54f6ceb411ed785358b"
     },
     "SparseArray": {
       "Package": "SparseArray",
@@ -1219,6 +1257,18 @@
         "utils"
       ],
       "Hash": "c01cab1cb0f9125211a6fc99d540e315"
+    },
+    "chron": {
+      "Package": "chron",
+      "Version": "2.3-62",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "graphics",
+        "stats"
+      ],
+      "Hash": "44b447294e88a86666295775d1420522"
     },
     "class": {
       "Package": "class",
@@ -2197,6 +2247,21 @@
       "Repository": "RSPM",
       "Hash": "7a0051eef852c301b5efe2f7913dd45f"
     },
+    "gplots": {
+      "Package": "gplots",
+      "Version": "3.2.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "KernSmooth",
+        "R",
+        "caTools",
+        "gtools",
+        "methods",
+        "stats"
+      ],
+      "Hash": "d24febf39c58dcb5a6cc6a12bd66d40a"
+    },
     "graph": {
       "Package": "graph",
       "Version": "1.80.0",
@@ -2210,6 +2275,25 @@
         "utils"
       ],
       "Hash": "af02a936ce577656083213cdd8f5584d"
+    },
+    "graphite": {
+      "Package": "graphite",
+      "Version": "1.48.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "AnnotationDbi",
+        "R",
+        "graph",
+        "graphics",
+        "httr",
+        "methods",
+        "purrr",
+        "rappdirs",
+        "rlang",
+        "stats",
+        "utils"
+      ],
+      "Hash": "3a996a9fee695c929328a5682230644f"
     },
     "graphlayouts": {
       "Package": "graphlayouts",
@@ -2302,6 +2386,16 @@
       ],
       "Hash": "d37d82cf043b679dd802e91d0b2ef6a1"
     },
+    "gsubfn": {
+      "Package": "gsubfn",
+      "Version": "0.7",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "proto"
+      ],
+      "Hash": "a8ebb0bb0edcf041a7649ee43a0e1735"
+    },
     "gtable": {
       "Package": "gtable",
       "Version": "0.3.5",
@@ -2317,6 +2411,18 @@
       ],
       "Hash": "e18861963cbc65a27736e02b3cd3c4a0"
     },
+    "gtools": {
+      "Package": "gtools",
+      "Version": "3.9.5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "methods",
+        "stats",
+        "utils"
+      ],
+      "Hash": "588d091c35389f1f4a9d533c8d709b35"
+    },
     "hardhat": {
       "Package": "hardhat",
       "Version": "1.4.0",
@@ -2331,6 +2437,18 @@
         "vctrs"
       ],
       "Hash": "e7aabf81944f6c6cbbcec1f85827a279"
+    },
+    "hash": {
+      "Package": "hash",
+      "Version": "2.2.6.3",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "methods",
+        "utils"
+      ],
+      "Hash": "8310fb85fc6230699c88c9a63f5dcb46"
     },
     "here": {
       "Package": "here",
@@ -3309,6 +3427,13 @@
       ],
       "Hash": "434cd5388a3979e74be5c219bcd6e77d"
     },
+    "proto": {
+      "Package": "proto",
+      "Version": "1.0.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "5cb1623df69ee6102d011c7f78f5791d"
+    },
     "proxy": {
       "Package": "proxy",
       "Version": "0.4-27",
@@ -3417,6 +3542,17 @@
         "R"
       ],
       "Hash": "5e3c5dc0b071b21fa128676560dbe94d"
+    },
+    "reactome.db": {
+      "Package": "reactome.db",
+      "Version": "1.86.2",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "AnnotationDbi",
+        "R",
+        "methods"
+      ],
+      "Hash": "b01099a46b1d52ebe7ce013ac7ea6ef4"
     },
     "readr": {
       "Package": "readr",
@@ -3828,6 +3964,21 @@
       ],
       "Hash": "40b74690debd20c57d93d8c246b305d4"
     },
+    "sqldf": {
+      "Package": "sqldf",
+      "Version": "0.4-11",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "DBI",
+        "R",
+        "RSQLite",
+        "chron",
+        "gsubfn",
+        "proto"
+      ],
+      "Hash": "56b0039f97882b0627defddd4375dcce"
+    },
     "statmod": {
       "Package": "statmod",
       "Version": "1.5.0",
@@ -4135,14 +4286,14 @@
     },
     "treeio": {
       "Package": "treeio",
-      "Version": "1.29.1",
+      "Version": "1.31.0",
       "Source": "GitHub",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
       "RemoteUsername": "GuangchuangYu",
       "RemoteRepo": "treeio",
       "RemoteRef": "devel",
-      "RemoteSha": "5f50c6530df11e4324a7c09a40770927db216b11",
+      "RemoteSha": "3f53eecb86689c317f5ca4b130d89a24a763bd0f",
       "Requirements": [
         "R",
         "ape",
@@ -4157,7 +4308,7 @@
         "utils",
         "yulab.utils"
       ],
-      "Hash": "87cbc35008a5bd8bf14f8bb7073014d1"
+      "Hash": "d816a5695f616628cb03bb616ffd5c90"
     },
     "tweenr": {
       "Package": "tweenr",
