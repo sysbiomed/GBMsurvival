@@ -134,7 +134,7 @@ If you use this analysis in your research, please cite the following paper:
 
 Leitão, B.N., Veríssimo, A., Carvalho, A.M., & Vinga, S. (2025).\
 *"Enhancing Prognostic Signatures in Glioblastoma with Feature Selection and Regularised Cox Regression."*\
-**Genes**. DOI: [Insert DOI here]
+**Genes**. DOI: https://doi.org/10.3390/genes16050473
 
 ### Support
 
