@@ -36,14 +36,14 @@ This project uses the `renv` package to manage dependencies. To ensure reproduci
 
     ``` bash
     git clone https://github.com/sysbiomed/GBMsurvival.git
-    cd Monet
+    cd GBMsurvival
     ```
 
 2.  **Restore the R Environment (on R console)**:
 
     ``` r
-    setwd("path/to/Monet")  # Replace with your actual path
-    rstudioapi::openProject("Monet.Rproj")
+    setwd("path/to/GBMsurvival")  # Replace with your actual path
+    rstudioapi::openProject("GBMsurvival.Rproj")
     
     renv::activate()
     renv::restore()
